@@ -162,6 +162,7 @@ void credssp_ContextFree(CREDSSP_CONTEXT* context)
 	free(context->targetName);
 	sspi_SecBufferFree(&context->publicKey);
 	sspi_SecBufferFree(&context->clientNonce);
+	SecureZeroMemory(context->ntlmRguardKey, sizeof(context->ntlmRguardKey));
 	free(context);
 }
 
@@ -536,7 +537,35 @@ static SECURITY_STATUS SEC_ENTRY credssp_InitializeSecurityContextW(
 			if (context->nego->QueryContextAttributesW(
 			        &context->negoCtx, SECPKG_CRED_ATTR_TICKET_LOGON, &ticket) == SEC_E_OK)
 			{
-				built = winpr_tscredentials_encode_remoteguard_kerb(&ticket, &tsCreds);
+				/* When we hold the password, also forward an NTLM supplemental credential so the
+				 * target can do NTLM-backed SSO via the redirected MSV1_0 calls. Without a password
+				 * (ccache/TGT-only SSO) there is no NT hash, so only the Kerberos logon cred goes.
+				 */
+				SecBuffer ntlmCred = { 0 };
+				const BYTE* ntlmCredPtr = NULL;
+				size_t ntlmCredLen = 0;
+				if (context->haveIdentity && context->identity.Password &&
+				    (context->identity.PasswordLength > 0))
+				{
+					BYTE owf[16] = { 0 };
+					if (winpr_Digest(WINPR_MD_MD4, context->identity.Password,
+					                 (size_t)context->identity.PasswordLength * sizeof(WCHAR), owf,
+					                 sizeof(owf)) &&
+					    (winpr_RAND(context->ntlmRguardKey, sizeof(context->ntlmRguardKey)) == 0) &&
+					    winpr_ntlm_rguard_build_supplemental(
+					        owf, sizeof(owf), context->ntlmRguardKey,
+					        sizeof(context->ntlmRguardKey), &ntlmCred))
+					{
+						context->haveNtlmRguardKey = TRUE;
+						ntlmCredPtr = ntlmCred.pvBuffer;
+						ntlmCredLen = ntlmCred.cbBuffer;
+					}
+					SecureZeroMemory(owf, sizeof(owf));
+				}
+
+				built = winpr_tscredentials_encode_remoteguard(&ticket, ntlmCredPtr, ntlmCredLen,
+				                                               &tsCreds);
+				sspi_SecBufferFree(&ntlmCred);
 				free(ticket.ServiceTicket);
 				free(ticket.TicketGrantingTicket);
 			}
