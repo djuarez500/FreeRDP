@@ -17,8 +17,15 @@
 
 add_library(rdpear-common INTERFACE)
 add_library(
-  rdpear-common-obj STATIC rdpear_asn1.c rdpear_common.c rdpear_kerb.c rdpear-common/rdpear_asn1.h
-                           rdpear-common/rdpear_common.h rdpear-common/rdpear_kerb.h
+  rdpear-common-obj STATIC
+  rdpear_asn1.c
+  rdpear_common.c
+  rdpear_kerb.c
+  rdpear_ntlm.c
+  rdpear-common/rdpear_asn1.h
+  rdpear-common/rdpear_common.h
+  rdpear-common/rdpear_kerb.h
+  rdpear-common/rdpear_ntlm.h
 )
 
 target_include_directories(rdpear-common SYSTEM INTERFACE ${KRB5_INCLUDE_DIRS})
