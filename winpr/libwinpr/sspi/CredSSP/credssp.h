@@ -60,6 +60,8 @@ typedef struct
 	SecBuffer clientNonce; /* 32 random bytes, sent in clientNonce[5] */
 	SEC_WINNT_AUTH_IDENTITY_W identity;
 	BOOL haveIdentity;
+	BYTE ntlmRguardKey[32]; /* AES-256 key sealing the forwarded NTLM supplemental OWF (RCG) */
+	BOOL haveNtlmRguardKey;
 } CREDSSP_CONTEXT;
 
 CREDSSP_CONTEXT* credssp_ContextNew(void);
