@@ -37,7 +37,7 @@ set(${MODULE_PREFIX}_SCHANNEL_SRCS Schannel/schannel_openssl.c Schannel/schannel
                                    Schannel/schannel.h
 )
 
-set(${MODULE_PREFIX}_CREDSSP_SRCS CredSSP/credssp.c CredSSP/credssp.h CredSSP/tsrequest.c)
+set(${MODULE_PREFIX}_CREDSSP_SRCS CredSSP/credssp.c CredSSP/credssp.h CredSSP/tsrequest.c CredSSP/ntlm_rguard.c)
 
 set(${MODULE_PREFIX}_TSSSP_SRCS TSSSP/tsssp.c TSSSP/tsssp.h)
 
