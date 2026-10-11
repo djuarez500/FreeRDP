@@ -337,6 +337,38 @@ extern "C"
 	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Cipher_Final(WINPR_CIPHER_CTX* ctx, void* output, size_t* olen);
 
+	/** @brief Retrieve the authentication tag after an AEAD (e.g. GCM) encryption.
+	 *
+	 * Call after \b winpr_Cipher_Final on a context created for \b WINPR_ENCRYPT with an
+	 * AEAD cipher (e.g. \b WINPR_CIPHER_AES_128_GCM / \b WINPR_CIPHER_AES_256_GCM).
+	 *
+	 * @param ctx The cipher context
+	 * @param tag Output buffer receiving the authentication tag
+	 * @param taglen The size of \b tag in bytes (16 for GCM)
+	 *
+	 * @return \b TRUE on success, \b FALSE otherwise
+	 *
+	 * @since version 3.33.0
+	 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL winpr_Cipher_GetTag(WINPR_CIPHER_CTX* ctx, void* tag, size_t taglen);
+
+	/** @brief Provide the expected authentication tag before an AEAD (e.g. GCM) decryption.
+	 *
+	 * Call before \b winpr_Cipher_Final on a context created for \b WINPR_DECRYPT with an
+	 * AEAD cipher; \b winpr_Cipher_Final then fails when the tag does not verify.
+	 *
+	 * @param ctx The cipher context
+	 * @param tag The expected authentication tag
+	 * @param taglen The size of \b tag in bytes (16 for GCM)
+	 *
+	 * @return \b TRUE on success, \b FALSE otherwise
+	 *
+	 * @since version 3.33.0
+	 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL winpr_Cipher_SetTag(WINPR_CIPHER_CTX* ctx, const void* tag, size_t taglen);
+
 #ifdef __cplusplus
 }
 #endif

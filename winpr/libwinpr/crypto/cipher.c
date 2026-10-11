@@ -57,6 +57,9 @@ struct winpr_cipher_ctx_private_st
 #endif
 #ifdef WITH_MBEDTLS
 	mbedtls_cipher_context_t* mctx;
+	/* AEAD (GCM) decrypt: tag provided via winpr_Cipher_SetTag, verified in winpr_Cipher_Final */
+	BYTE gcmTag[16];
+	size_t gcmTagLen;
 #endif
 };
 
@@ -724,10 +727,65 @@ BOOL winpr_Cipher_Final(WINPR_CIPHER_CTX* ctx, void* output, size_t* olen)
 
 	WINPR_ASSERT(ctx->mctx);
 	if (mbedtls_cipher_finish(ctx->mctx, output, olen) == 0)
-		return TRUE;
+	{
+		if (ctx->gcmTagLen == 0)
+			return TRUE;
+		/* AEAD decrypt: verify the tag supplied via winpr_Cipher_SetTag */
+		if (mbedtls_cipher_check_tag(ctx->mctx, ctx->gcmTag, ctx->gcmTagLen) == 0)
+			return TRUE;
+	}
 
 #endif
 
+	return FALSE;
+}
+
+BOOL winpr_Cipher_GetTag(WINPR_CIPHER_CTX* ctx, void* tag, size_t taglen)
+{
+	WINPR_ASSERT(ctx);
+	WINPR_ASSERT(tag || (taglen == 0));
+
+#if defined(WITH_OPENSSL)
+	WINPR_ASSERT(ctx->ectx);
+	if (taglen > INT_MAX)
+		return FALSE;
+	if (EVP_CIPHER_CTX_ctrl(ctx->ectx, EVP_CTRL_AEAD_GET_TAG, (int)taglen, tag) == 1)
+		return TRUE;
+#elif defined(WITH_MBEDTLS)
+	WINPR_ASSERT(ctx->mctx);
+	if (mbedtls_cipher_write_tag(ctx->mctx, tag, taglen) == 0)
+		return TRUE;
+#endif
+
+	WLog_ERR(TAG, "Failed to get the authentication tag");
+	return FALSE;
+}
+
+BOOL winpr_Cipher_SetTag(WINPR_CIPHER_CTX* ctx, const void* tag, size_t taglen)
+{
+	WINPR_ASSERT(ctx);
+	WINPR_ASSERT(tag || (taglen == 0));
+
+#if defined(WITH_OPENSSL)
+	WINPR_ASSERT(ctx->ectx);
+	if (taglen > INT_MAX)
+		return FALSE;
+	/* OpenSSL consumes the expected tag at EVP_CipherFinal_ex time */
+	if (EVP_CIPHER_CTX_ctrl(ctx->ectx, EVP_CTRL_AEAD_SET_TAG, (int)taglen, (void*)tag) == 1)
+		return TRUE;
+#elif defined(WITH_MBEDTLS)
+	WINPR_ASSERT(ctx->mctx);
+	/* mbedTLS verifies the tag via mbedtls_cipher_check_tag in winpr_Cipher_Final */
+	if (taglen <= sizeof(ctx->gcmTag))
+	{
+		if (taglen > 0)
+			memcpy(ctx->gcmTag, tag, taglen);
+		ctx->gcmTagLen = taglen;
+		return TRUE;
+	}
+#endif
+
+	WLog_ERR(TAG, "Failed to set the authentication tag");
 	return FALSE;
 }
 
