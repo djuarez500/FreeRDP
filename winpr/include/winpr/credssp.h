@@ -168,6 +168,79 @@ extern "C"
 	WINPR_API BOOL winpr_credssp_public_key_hash(BOOL server, const SecBuffer* nonce,
 	                                             const SecBuffer* publicKey, SecBuffer* hash);
 
+	/* [MS-RDPEAR] Remote Credential Guard NTLM supplemental secrets.
+	 *
+	 * The client seals the user's NTLM secret (OWF) under a key it keeps, carries the sealed blob
+	 * as a credType-6 supplementalCreds package, and the target relays that blob back verbatim in
+	 * the redirected MSV1_0 calls for the client to open and compute with. The seal is
+	 * self-contained AES-GCM: [tag(16)][nonce(12)][reserved(4)][ciphertext], ciphertext the same
+	 * length as the plaintext. The key is the client's own (16 or 32 bytes -> AES-128/256-GCM); it
+	 * never leaves the client, so only self-consistency between seal and unseal matters. */
+#define WINPR_NTLM_RGUARD_SEAL_OVERHEAD 32u
+
+	/** @brief AES-GCM seal a secret into the [MS-RDPEAR] remote-guard blob layout.
+	 *  @param key the sealing key (16 or 32 bytes)
+	 *  @param keyLen the key length in bytes
+	 *  @param plaintext the secret to seal
+	 *  @param plaintextLen the secret length
+	 *  @param output receives the sealed blob; the caller frees it with sspi_SecBufferFree
+	 *  @return \b TRUE on success
+	 *  @since version 3.33.0 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL winpr_ntlm_rguard_secrets_seal(const BYTE* key, size_t keyLen,
+	                                              const BYTE* plaintext, size_t plaintextLen,
+	                                              SecBuffer* output);
+
+	/** @brief AES-GCM unseal a remote-guard blob produced by winpr_ntlm_rguard_secrets_seal.
+	 *  @param key the sealing key (same one used to seal)
+	 *  @param keyLen the key length in bytes
+	 *  @param blob the sealed blob
+	 *  @param blobLen the sealed blob length (>= WINPR_NTLM_RGUARD_SEAL_OVERHEAD)
+	 *  @param output receives the recovered secret; the caller frees it with sspi_SecBufferFree
+	 *  @return \b TRUE on success (including tag verification)
+	 *  @since version 3.33.0 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL winpr_ntlm_rguard_secrets_unseal(const BYTE* key, size_t keyLen,
+	                                                const BYTE* blob, size_t blobLen,
+	                                                SecBuffer* output);
+
+/* [MS-RDPEAR] MSV1_0_REMOTE_SUPPLEMENTAL_CREDENTIAL "strong" (encrypted) form marker. */
+#define WINPR_MSV1_0_REMOTE_SUPPLEMENTAL_VERSION 0xffff0002u
+
+	/** @brief Build the MSV1_0_REMOTE_SUPPLEMENTAL_CREDENTIAL credBuffer that carries the sealed
+	 * NTLM secret as a credType-6 supplementalCreds package.
+	 *
+	 * Layout (little-endian): Version(=0xffff0002), Flags, CredentialKey[16], CredentialKeyType,
+	 * reserved, EncryptedCredsSize, EncryptedCreds[]. EncryptedCreds is the sealed secret; the
+	 * sealing key stays on the client (CredentialKey is left zero), so the target can only relay
+	 * it.
+	 *
+	 * @param secret the NTLM secret to seal (typically the 16-byte NT OWF)
+	 * @param secretLen the secret length
+	 * @param key the sealing key (16 or 32 bytes); keep it to open the redirected calls
+	 * @param keyLen the sealing key length
+	 * @param credBuffer receives the wire buffer; the caller frees it with sspi_SecBufferFree
+	 * @return \b TRUE on success
+	 * @since version 3.33.0 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL winpr_ntlm_rguard_build_supplemental(const BYTE* secret, size_t secretLen,
+	                                                    const BYTE* key, size_t keyLen,
+	                                                    SecBuffer* credBuffer);
+
+	/** @brief Encode a credType 6 (TSRemoteGuardCreds) TSCredentials with a Kerberos logon
+	 * credential and, when \b ntlmCred is non-NULL, an NTLM supplementalCreds package.
+	 *
+	 * @param ticket the Kerberos KERB_TICKET_LOGON logon credential
+	 * @param ntlmCred the MSV1_0_REMOTE_SUPPLEMENTAL_CREDENTIAL credBuffer, or NULL for none
+	 * @param ntlmCredLen the \b ntlmCred length
+	 * @param output receives the DER TSCredentials; the caller frees it with sspi_SecBufferFree
+	 * @return \b TRUE on success
+	 * @since version 3.33.0 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL winpr_tscredentials_encode_remoteguard(const KERB_TICKET_LOGON* ticket,
+	                                                      const BYTE* ntlmCred, size_t ntlmCredLen,
+	                                                      SecBuffer* output);
+
 #ifdef __cplusplus
 }
 #endif

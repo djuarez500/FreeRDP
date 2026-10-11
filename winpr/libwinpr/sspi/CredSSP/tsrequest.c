@@ -241,6 +241,7 @@ BOOL winpr_tsrequest_decode(wStream* s, WINPR_TSREQUEST* request)
  * TSRemoteGuardCreds uses for the logon credential. */
 static const BYTE KerberosPackageNameW[] = { 'K', 0, 'e', 0, 'r', 0, 'b', 0,
 	                                         'e', 0, 'r', 0, 'o', 0, 's', 0 };
+static const BYTE NtlmPackageNameW[] = { 'N', 0, 'T', 0, 'L', 0, 'M', 0 };
 
 BOOL winpr_kerb_ticket_logon_encode(const KERB_TICKET_LOGON* ticket, SecBuffer* output)
 {
@@ -384,10 +385,14 @@ fail:
 	return rc;
 }
 
-BOOL winpr_tscredentials_encode_remoteguard_kerb(const KERB_TICKET_LOGON* ticket, SecBuffer* output)
+BOOL winpr_tscredentials_encode_remoteguard(const KERB_TICKET_LOGON* ticket, const BYTE* ntlmCred,
+                                            size_t ntlmCredLen, SecBuffer* output)
 {
 	WINPR_ASSERT(ticket);
 	WINPR_ASSERT(output);
+
+	if (ntlmCred && (ntlmCredLen > UINT32_MAX))
+		return FALSE;
 
 	BOOL rc = FALSE;
 	SecBuffer kerb = { 0 };
@@ -420,6 +425,26 @@ BOOL winpr_tscredentials_encode_remoteguard_kerb(const KERB_TICKET_LOGON* ticket
 		goto fail;
 	if (!WinPrAsn1EncEndContainer(enc)) /* logonCred */
 		goto fail;
+
+	/* supplementalCreds [1] SEQUENCE OF TSRemoteGuardPackageCred OPTIONAL */
+	if (ntlmCred)
+	{
+		WinPrAsn1_OctetString ntlmName = { sizeof(NtlmPackageNameW), (BYTE*)NtlmPackageNameW };
+		WinPrAsn1_OctetString ntlmBuffer = { ntlmCredLen, (BYTE*)ntlmCred };
+
+		if (!WinPrAsn1EncContextualSeqContainer(enc, 1)) /* supplementalCreds [1] (SEQUENCE OF) */
+			goto fail;
+		if (!WinPrAsn1EncSeqContainer(enc)) /* a TSRemoteGuardPackageCred element */
+			goto fail;
+		if ((WinPrAsn1EncContextualOctetString(enc, 0, &ntlmName) == 0) ||
+		    (WinPrAsn1EncContextualOctetString(enc, 1, &ntlmBuffer) == 0))
+			goto fail;
+		if (!WinPrAsn1EncEndContainer(enc)) /* element */
+			goto fail;
+		if (!WinPrAsn1EncEndContainer(enc)) /* supplementalCreds */
+			goto fail;
+	}
+
 	if (!WinPrAsn1EncEndContainer(enc)) /* TSRemoteGuardCreds */
 		goto fail;
 	if (!WinPrAsn1EncEndContainer(enc) || !WinPrAsn1EncEndContainer(enc)) /* creds, TSCredentials */
@@ -431,6 +456,11 @@ fail:
 	sspi_SecBufferFree(&kerb);
 	WinPrAsn1Encoder_Free(&enc);
 	return rc;
+}
+
+BOOL winpr_tscredentials_encode_remoteguard_kerb(const KERB_TICKET_LOGON* ticket, SecBuffer* output)
+{
+	return winpr_tscredentials_encode_remoteguard(ticket, NULL, 0, output);
 }
 
 /* ---- pubKeyAuth hash ([MS-CSSP] 3.1.5, version 6) ---- */
