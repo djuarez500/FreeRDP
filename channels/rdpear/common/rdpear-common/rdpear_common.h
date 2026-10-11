@@ -71,10 +71,11 @@ typedef enum
 	// Start NTLM remote calls
 	RemoteCallNtlmMinimum = 0x200,
 	RemoteCallNtlmNegotiateVersion = 0x200,
-	RemoteCallNtlmLm20GetNtlm3ChallengeResponse,
-	RemoteCallNtlmCalculateNtResponse,
-	RemoteCallNtlmCalculateUserSessionKeyNt,
-	RemoteCallNtlmCompareCredentials,
+	RemoteCallNtlmProtectCredential,             // 0x201
+	RemoteCallNtlmLm20GetNtlm3ChallengeResponse, // 0x202
+	RemoteCallNtlmCalculateNtResponse,           // 0x203
+	RemoteCallNtlmCalculateUserSessionKeyNt,     // 0x204
+	RemoteCallNtlmCompareCredentials,            // 0x205
 	RemoteCallNtlmMaximum = 0x2ff,
 	// End NTLM remote calls
 } RemoteGuardCallId;
