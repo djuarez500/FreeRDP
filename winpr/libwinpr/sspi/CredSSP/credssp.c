@@ -647,6 +647,19 @@ static SECURITY_STATUS SEC_ENTRY credssp_QueryContextAttributesW(PCtxtHandle phC
 		return SEC_E_OK;
 	}
 
+	if (ulAttribute == SECPKG_ATTR_WINPR_NTLM_RGUARD_KEY)
+	{
+		SecPkgContext_WinPrNtlmRGuardKey* k = (SecPkgContext_WinPrNtlmRGuardKey*)pBuffer;
+		if (!context->haveNtlmRguardKey)
+		{
+			k->KeyLength = 0;
+			return SEC_E_NO_CREDENTIALS;
+		}
+		k->KeyLength = sizeof(context->ntlmRguardKey);
+		memcpy(k->Key, context->ntlmRguardKey, sizeof(context->ntlmRguardKey));
+		return SEC_E_OK;
+	}
+
 	if (context->nego && context->nego->QueryContextAttributesW)
 		return context->nego->QueryContextAttributesW(&context->negoCtx, ulAttribute, pBuffer);
 	return SEC_E_UNSUPPORTED_FUNCTION;

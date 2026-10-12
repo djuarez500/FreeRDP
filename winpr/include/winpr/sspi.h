@@ -1514,6 +1514,17 @@ extern "C"
  * the lsa4posix context id. */
 #define SECPKG_ATTR_WINPR_TSPKG_CONTEXT 1201
 
+/* WinPR-private context attribute: the AES key the CredSSP client used to seal the forwarded
+ * NTLM supplemental credential (Remote Credential Guard). The lsa4posix daemon needs it to open
+ * the secrets the target ships back in the redirected [MS-RDPEAR] MSV1_0 calls. */
+#define SECPKG_ATTR_WINPR_NTLM_RGUARD_KEY 1202
+
+	typedef struct
+	{
+		UINT32 KeyLength;
+		BYTE Key[32];
+	} SecPkgContext_WinPrNtlmRGuardKey;
+
 	typedef struct
 	{
 		char User[256 + 1];
