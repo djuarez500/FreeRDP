@@ -105,7 +105,8 @@ UINT rdpear_inproc_receive(rdpearInproc* inproc, IWTSVirtualChannel* channel, wS
 	if (!freerdp_nla_decrypt(inproc->rdp_context, &inBuffer, &decrypted))
 		goto out;
 
-	respPlain = rdpear_kerb_service(inproc->krbContext, decrypted.pvBuffer, decrypted.cbBuffer);
+	respPlain =
+	    rdpear_kerb_service(inproc->krbContext, nullptr, 0, decrypted.pvBuffer, decrypted.cbBuffer);
 	if (!respPlain)
 		goto out;
 

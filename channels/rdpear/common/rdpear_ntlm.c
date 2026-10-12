@@ -18,8 +18,13 @@
 #include <winpr/crt.h>
 #include <winpr/assert.h>
 #include <winpr/crypto.h>
+#include <winpr/stream.h>
+
+#include <freerdp/channels/log.h>
 
 #include "rdpear-common/rdpear_ntlm.h"
+
+#define TAG CHANNELS_TAG("rdpear.ntlm")
 
 /* Expand a 7-byte block into an 8-byte DES key (7 bits of key per byte + a (ignored) parity bit),
  * per [MS-NLMP] 6 / the classic LM/NTLM key schedule. */
@@ -166,4 +171,66 @@ BOOL rdpear_ntlm_v2_response(const BYTE ntowfv2[RDPEAR_NTOWF_LENGTH], const BYTE
 out:
 	winpr_HMAC_Free(hmac);
 	return rc;
+}
+
+BOOL rdpear_ntlm_av_find(const BYTE* avPairs, size_t len, UINT16 avId, const BYTE** pvalue,
+                         UINT16* pvalueLen)
+{
+	if (!avPairs || !pvalue || !pvalueLen)
+		return FALSE;
+
+	wStream sbuffer = WINPR_C_ARRAY_INIT;
+	wStream* s = Stream_StaticConstInit(&sbuffer, avPairs, len);
+	while (Stream_GetRemainingLength(s) >= 4)
+	{
+		UINT16 id = 0;
+		UINT16 l = 0;
+		Stream_Read_UINT16(s, id); /* AvId */
+		Stream_Read_UINT16(s, l);  /* AvLen */
+
+		if (id == 0 /* MsvAvEOL */)
+			break;
+		if (!Stream_CheckAndLogRequiredLength(TAG, s, l))
+			return FALSE;
+		if (id == avId)
+		{
+			*pvalue = Stream_ConstPointer(s);
+			*pvalueLen = l;
+			return TRUE;
+		}
+		Stream_Seek(s, l);
+	}
+	return FALSE;
+}
+
+BOOL rdpear_ntlm_v2_build_temp(const BYTE timestamp[8], const BYTE clientChallenge[8],
+                               const BYTE* targetInfo, size_t targetInfoLen, BYTE** ptemp,
+                               size_t* ptempLen)
+{
+	/* 1 + 1 + Z(6) + 8 + 8 + Z(4) + targetInfo + Z(4) = 32 + targetInfoLen */
+	if (!timestamp || !clientChallenge || (!targetInfo && (targetInfoLen != 0)) || !ptemp ||
+	    !ptempLen)
+		return FALSE;
+	if (targetInfoLen > SIZE_MAX - 32)
+		return FALSE;
+
+	wStream* s = Stream_New(nullptr, 32 + targetInfoLen);
+	if (!s)
+		return FALSE;
+
+	Stream_Write_UINT8(s, 0x01);            /* RespType */
+	Stream_Write_UINT8(s, 0x01);            /* HiRespType */
+	Stream_Zero(s, 6);                      /* Reserved1, Reserved2 */
+	Stream_Write(s, timestamp, 8);          /* TimeStamp */
+	Stream_Write(s, clientChallenge, 8);    /* ChallengeFromClient */
+	Stream_Zero(s, 4);                      /* Reserved3 */
+	if (targetInfoLen > 0)
+		Stream_Write(s, targetInfo, targetInfoLen); /* AvPairs */
+	Stream_Zero(s, 4);                      /* Z(4) */
+
+	/* the caller frees the buffer with free() */
+	*ptempLen = Stream_GetPosition(s);
+	*ptemp = Stream_Buffer(s);
+	Stream_Free(s, FALSE);
+	return TRUE;
 }
