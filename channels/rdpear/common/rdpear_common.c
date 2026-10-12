@@ -859,7 +859,7 @@ static const WinPrNdrStructDescr Lm20GetNtlm3ChallengeResponseReq_struct = {
 	Lm20GetNtlm3ChallengeResponseReq_fields, 4
 };
 
-WINPR_NDR_STRUCT_MESSAGE_DEFINE(Lm20GetNtlm3ChallengeResponseReq, Lm20GetNtlm3ChallengeResponseReq);
+RDPEAR_SIMPLE_MESSAGE_TYPE(Lm20GetNtlm3ChallengeResponseReq)
 
 static const WinPrNdrFieldStruct Lm20GetNtlm3ChallengeResponseResp_fields[] = {
 	{ "Ntlm3ResponseLength", offsetof(Lm20GetNtlm3ChallengeResponseResp, Ntlm3ResponseLength),
@@ -947,7 +947,7 @@ WINPR_NDR_STRUCT_MESSAGE_DEFINE(CompareCredentialsResp, CompareCredentialsResp);
 static const WinPrNdrUnionArm NtlmCredIsoRemoteInputUnion_arms[] = {
 	RDPEAR_ARM(RemoteCallNtlmNegotiateVersion, NegotiateVersion, &winpr_ndr_uint32_descr_s),
 	RDPEAR_ARM(RemoteCallNtlmLm20GetNtlm3ChallengeResponse, Lm20GetNtlm3ChallengeResponse,
-	           &Lm20GetNtlm3ChallengeResponseReq_descr_s),
+	           &ndr_Lm20GetNtlm3ChallengeResponseReq_descr_s),
 	RDPEAR_ARM(RemoteCallNtlmCalculateNtResponse, CalculateNtResponse,
 	           &CalculateNtResponseReq_descr_s),
 	RDPEAR_ARM(RemoteCallNtlmCalculateUserSessionKeyNt, CalculateUserSessionKeyNt,
