@@ -27,11 +27,14 @@
 #include <winpr/wlog.h>
 #include <winpr/print.h>
 #include <winpr/asn1.h>
+#include <winpr/sysinfo.h>
+#include <winpr/credssp.h>
 #include <rdpear-common/ndr.h>
 
 #include <rdpear-common/rdpear_common.h>
 #include <rdpear-common/rdpear_asn1.h>
 #include <rdpear-common/rdpear_kerb.h>
+#include <rdpear-common/rdpear_ntlm.h>
 
 #include <freerdp/channels/log.h>
 
@@ -718,11 +721,138 @@ static BOOL rdpear_ntlm_version(NdrContext* rcontext, wStream* s, UINT32* pstatu
 	return TRUE;
 }
 
+#define MSV_AV_TIMESTAMP 0x0007 /* [MS-NLMP] 2.2.2.1 AV_PAIR AvId MsvAvTimestamp */
+
+/* Service a redirected MSV1_0 Lm20GetNtlm3ChallengeResponse (callId 0x202).
+ *
+ * The target relayed back the NTLM supplemental credential the client forwarded (the sealed NT
+ * OWF); we open it with the client's own sealing key, derive NTOWFv2 for the redirected user/domain
+ * and compute the NTLMv2 response over the server challenge and the server-provided target info,
+ * exactly as a local NTLM client would, so the target can complete the second-hop authentication
+ * without ever holding the password. [MS-NLMP] 3.3.2. */
+static BOOL rdpear_ntlm_Lm20GetNtlm3ChallengeResponse(const BYTE* ntlmKey, size_t ntlmKeyLen,
+                                                      NdrContext* rcontext, wStream* s,
+                                                      UINT32* pstatus,
+                                                      Lm20GetNtlm3ChallengeResponseResp* resp)
+{
+	Lm20GetNtlm3ChallengeResponseReq req = WINPR_C_ARRAY_INIT;
+	SecBuffer owf = WINPR_C_ARRAY_INIT;
+	BYTE ntowfv2[RDPEAR_NTOWF_LENGTH] = { 0 };
+	BYTE ntProof[16] = { 0 };
+	BYTE sessionBaseKey[16] = { 0 };
+	BYTE clientChallenge[8] = { 0 };
+	BYTE timestamp[8] = { 0 };
+	BYTE* temp = nullptr;
+	size_t tempLen = 0;
+	BYTE* ntResponse = nullptr;
+
+	*pstatus = ERROR_INVALID_DATA;
+	WLog_DBG(TAG, "-> Lm20GetNtlm3ChallengeResponse");
+
+	if (!ntlmKey || (ntlmKeyLen == 0))
+	{
+		WLog_ERR(TAG, "no NTLM sealing key available to service the redirected call");
+		goto out;
+	}
+
+	if (!ndr_read_Lm20GetNtlm3ChallengeResponseReq(rcontext, s, nullptr, &req) ||
+	    !ndr_treat_deferred_read(rcontext, s))
+		goto out;
+
+	if (!req.EncryptedSecrets || !req.UserName || !req.LogonDomainName || !req.ServerName)
+		goto out;
+
+	/* Open the forwarded NTLM secret (the 16-byte NT OWF) with the client's sealing key. */
+	if (!winpr_ntlm_rguard_secrets_unseal(ntlmKey, ntlmKeyLen,
+	                                      req.EncryptedSecrets->EncryptedSecrets,
+	                                      req.EncryptedSecrets->EncryptedSecretsHints.count, &owf))
+	{
+		WLog_ERR(TAG, "failed to unseal the forwarded NTLM secret");
+		goto out;
+	}
+	if (owf.cbBuffer != RDPEAR_NTOWF_LENGTH)
+	{
+		WLog_ERR(TAG, "unexpected NTLM secret length %" PRIu32, owf.cbBuffer);
+		goto out;
+	}
+
+	/* NTOWFv2 = HMAC-MD5(NTOWFv1, upper(user) || domain) */
+	if (!rdpear_ntowf_v2((const BYTE*)owf.pvBuffer, req.UserName->Buffer, req.UserName->strLength,
+	                     req.LogonDomainName->Buffer, req.LogonDomainName->strLength, ntowfv2))
+		goto out;
+
+	const BYTE* targetInfo = (const BYTE*)req.ServerName->Buffer;
+	const size_t targetInfoLen = req.ServerName->lenHints.length;
+
+	/* Carry the server's timestamp into the temp when present, else use the current time. */
+	const BYTE* tsPtr = nullptr;
+	UINT16 tsLen = 0;
+	if (rdpear_ntlm_av_find(targetInfo, targetInfoLen, MSV_AV_TIMESTAMP, &tsPtr, &tsLen) &&
+	    (tsLen == sizeof(timestamp)))
+	{
+		memcpy(timestamp, tsPtr, sizeof(timestamp));
+	}
+	else
+	{
+		FILETIME ft = { 0 };
+		GetSystemTimeAsFileTime(&ft);
+		const UINT64 t = ((UINT64)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+		for (size_t i = 0; i < sizeof(timestamp); i++)
+			timestamp[i] = (BYTE)(t >> (8 * i));
+	}
+
+	if (winpr_RAND(clientChallenge, sizeof(clientChallenge)) != 0)
+		goto out;
+
+	if (!rdpear_ntlm_v2_build_temp(timestamp, clientChallenge, targetInfo, targetInfoLen, &temp,
+	                               &tempLen))
+		goto out;
+
+	if (!rdpear_ntlm_v2_response(ntowfv2, req.ChallengeToClient, temp, tempLen, ntProof,
+	                             sessionBaseKey))
+		goto out;
+
+	/* NtChallengeResponse = NTProofStr(16) || temp */
+	if (tempLen > UINT16_MAX - sizeof(ntProof))
+		goto out;
+	const size_t ntResponseLen = sizeof(ntProof) + tempLen;
+	ntResponse = (BYTE*)malloc(ntResponseLen);
+	if (!ntResponse)
+		goto out;
+	memcpy(ntResponse, ntProof, sizeof(ntProof));
+	memcpy(ntResponse + sizeof(ntProof), temp, tempLen);
+
+	resp->NtResponse = ntResponse;
+	ntResponse = nullptr;
+	resp->NtResponseLength = (UINT16)ntResponseLen;
+	resp->NtResponseHints.count = (UINT32)ntResponseLen;
+	memcpy(resp->UserSessionKey, sessionBaseKey, sizeof(resp->UserSessionKey));
+	/* Lm3Response and ClearBlock stay zero: with a server timestamp present the LM response is
+	 * suppressed ([MS-NLMP] 3.1.5.1.2). */
+
+	*pstatus = 0;
+
+out:
+	free(ntResponse);
+	free(temp);
+	if (owf.pvBuffer)
+		SecureZeroMemory(owf.pvBuffer, owf.cbBuffer);
+	sspi_SecBufferFree(&owf);
+	SecureZeroMemory(ntowfv2, sizeof(ntowfv2));
+	SecureZeroMemory(sessionBaseKey, sizeof(sessionBaseKey));
+	ndr_destroy_Lm20GetNtlm3ChallengeResponseReq(rcontext, nullptr, &req);
+	return TRUE;
+}
+
 /* Dispatch one decrypted [MS-RDPEAR] payload (the [2] payload octet string) to the matching
  * Kerberos/NTLM handler and encode the NDR response. Returns the inner response stream. */
-static wStream* rdpear_kerb_dispatch(krb5_context krb, const WinPrAsn1_OctetString* packageName,
-                                     wStream* s, BOOL* pIsKerb)
+static wStream* rdpear_kerb_dispatch(krb5_context krb, const BYTE* ntlmKey, size_t ntlmKeyLen,
+                                     const WinPrAsn1_OctetString* packageName, wStream* s,
+                                     BOOL* pIsKerb)
 {
+	/* ntlmKey/ntlmKeyLen seal the forwarded NTLM secret; the NTLM crypto handlers open it to
+	 * service the redirected MSV1_0 calls. */
+
 	NdrContext* context = nullptr;
 	NdrContext* wcontext = nullptr;
 	UINT32 status = 0;
@@ -732,6 +862,7 @@ static wStream* rdpear_kerb_dispatch(krb5_context krb, const WinPrAsn1_OctetStri
 	CreateApReqAuthenticatorResp createApReqAuthenticatorResp = WINPR_C_ARRAY_INIT;
 	UnpackKdcReplyBodyResp unpackKdcReplyBodyResp = WINPR_C_ARRAY_INIT;
 	PackApReplyResp packApReplyResp = WINPR_C_ARRAY_INIT;
+	Lm20GetNtlm3ChallengeResponseResp lm20Resp = WINPR_C_ARRAY_INIT;
 	void* resp = nullptr;
 	NdrMessageType respDescr = nullptr;
 	BOOL ok = FALSE;
@@ -821,6 +952,12 @@ static wStream* rdpear_kerb_dispatch(krb5_context krb, const WinPrAsn1_OctetStri
 			respDescr = ndr_uint32_descr();
 			rdpear_ntlm_version(context, &commandStream, &status, &uint32Resp);
 			break;
+		case RemoteCallNtlmLm20GetNtlm3ChallengeResponse:
+			resp = &lm20Resp;
+			respDescr = ndr_Lm20GetNtlm3ChallengeResponseResp_descr();
+			rdpear_ntlm_Lm20GetNtlm3ChallengeResponse(ntlmKey, ntlmKeyLen, context, &commandStream,
+			                                          &status, &lm20Resp);
+			break;
 		default:
 			WLog_DBG(TAG, "Unhandled callId=0x%x", callId);
 			goto out;
@@ -834,8 +971,6 @@ static wStream* rdpear_kerb_dispatch(krb5_context krb, const WinPrAsn1_OctetStri
 		WINPR_ASSERT(respDescr->writeFn);
 		BOOL r = respDescr->writeFn(wcontext, respStream, nullptr, resp) &&
 		         ndr_treat_deferred_write(wcontext, respStream);
-		if (respDescr->destroyFn)
-			respDescr->destroyFn(wcontext, nullptr, resp);
 		if (!r)
 			goto out;
 	}
@@ -845,6 +980,13 @@ static wStream* rdpear_kerb_dispatch(krb5_context krb, const WinPrAsn1_OctetStri
 
 	ok = TRUE;
 out:
+	/* Free the response payload on every path: a prepare_response or write failure jumps here
+	 * before the normal cleanup. resp is only set once past the header reads, so the read context
+	 * is still valid here. The payload is freed through respDescr->destroyFn, a function pointer
+	 * the static analyzer cannot follow, hence the NOLINT around this block. */
+	// NOLINTBEGIN(clang-analyzer-unix.Malloc): destroyFn frees the response buffers
+	if (resp && respDescr && respDescr->destroyFn)
+		respDescr->destroyFn(context, nullptr, resp);
 	if (context)
 		ndr_context_destroy(&context);
 	if (wcontext)
@@ -855,9 +997,11 @@ out:
 		return nullptr;
 	}
 	return respStream;
+	// NOLINTEND(clang-analyzer-unix.Malloc)
 }
 
-wStream* rdpear_kerb_service(krb5_context krb, const BYTE* plaintext, size_t plaintextLen)
+wStream* rdpear_kerb_service(krb5_context krb, const BYTE* ntlmKey, size_t ntlmKeyLen,
+                             const BYTE* plaintext, size_t plaintextLen)
 {
 	WINPR_ASSERT(krb);
 	WINPR_ASSERT(plaintext);
@@ -883,7 +1027,8 @@ wStream* rdpear_kerb_service(krb5_context krb, const BYTE* plaintext, size_t pla
 	Stream_StaticInit(&payloadStream, payload.data, payload.len);
 
 	BOOL isKerb = FALSE;
-	wStream* respStream = rdpear_kerb_dispatch(krb, &packageName, &payloadStream, &isKerb);
+	wStream* respStream =
+	    rdpear_kerb_dispatch(krb, ntlmKey, ntlmKeyLen, &packageName, &payloadStream, &isKerb);
 	if (!respStream)
 		return nullptr;
 

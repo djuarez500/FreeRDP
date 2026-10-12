@@ -30,12 +30,16 @@
  * carried in the request and never touch the ticket cache, so any krb5_context suffices.
  *
  * @param krb a krb5 context for the crypto operations
+ * @param ntlmKey the AES key sealing the forwarded NTLM supplemental secret, or NULL when NTLM
+ *                was not forwarded (only the Kerberos/NTLM-version calls are then serviced)
+ * @param ntlmKeyLen the ntlmKey length in bytes (16 or 32)
  * @param plaintext the decrypted request payload
  * @param plaintextLen its length in bytes
  * @return a newly allocated stream with the decrypted response payload (caller frees with
  *         Stream_Free(.., TRUE)), or NULL on error
  */
 WINPR_ATTR_MALLOC(Stream_Free, 1)
-wStream* rdpear_kerb_service(krb5_context krb, const BYTE* plaintext, size_t plaintextLen);
+wStream* rdpear_kerb_service(krb5_context krb, const BYTE* ntlmKey, size_t ntlmKeyLen,
+                             const BYTE* plaintext, size_t plaintextLen);
 
 #endif /* FREERDP_CHANNELS_RDPEAR_COMMON_KERB_H */

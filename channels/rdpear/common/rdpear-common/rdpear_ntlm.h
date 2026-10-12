@@ -71,6 +71,41 @@ extern "C"
 	                                           size_t blobLen, BYTE ntProof[16],
 	                                           BYTE sessionBaseKey[16]);
 
+	/** @brief Find an AV_PAIR value in an [MS-NLMP] 2.2.2.1 AV_PAIR list.
+	 *
+	 * @param avPairs the AV_PAIR list (little-endian {AvId, AvLen, Value}... terminated by
+	 * MsvAvEOL)
+	 * @param len the list length in bytes
+	 * @param avId the AvId to look for
+	 * @param pvalue receives a pointer into \b avPairs on success
+	 * @param pvalueLen receives the value length
+	 * @return \b TRUE if found
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_LOCAL BOOL rdpear_ntlm_av_find(const BYTE* avPairs, size_t len, UINT16 avId,
+	                                       const BYTE** pvalue, UINT16* pvalueLen);
+
+	/** @brief Build the NTLMv2 "temp" (NTLMv2_CLIENT_CHALLENGE, [MS-NLMP] 2.2.2.7 / 3.3.2):
+	 * RespType(1)=1, HiRespType(1)=1, Z(6), Timestamp(8), ClientChallenge(8), Z(4), TargetInfo,
+	 * Z(4).
+	 *
+	 * The full NtChallengeResponse is NTProofStr || temp; NTProofStr/sessionBaseKey come from
+	 * rdpear_ntlm_v2_response over (serverChallenge || temp).
+	 *
+	 * @param timestamp the 8-byte FILETIME (usually the server MsvAvTimestamp)
+	 * @param clientChallenge the 8-byte client challenge
+	 * @param targetInfo the server AV_PAIR list (becomes the temp ServerName)
+	 * @param targetInfoLen the AV_PAIR list length
+	 * @param ptemp receives the allocated temp; the caller frees it
+	 * @param ptempLen receives the temp length
+	 * @return \b TRUE on success
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_LOCAL BOOL rdpear_ntlm_v2_build_temp(const BYTE timestamp[8],
+	                                             const BYTE clientChallenge[8],
+	                                             const BYTE* targetInfo, size_t targetInfoLen,
+	                                             BYTE** ptemp, size_t* ptempLen);
+
 #ifdef __cplusplus
 }
 #endif
