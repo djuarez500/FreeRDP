@@ -233,8 +233,6 @@ typedef struct
 
 RDPEAR_COMMON_MESSAGE_DECL(PackApReplyResp);
 
-#undef RDPEAR_COMMON_MESSAGE_DECL
-
 /** @brief 2.2.1.2.9 KerbCredIsoRemoteInput
  *
  * The calls that are not described are decoded without their arm.
@@ -330,6 +328,10 @@ typedef struct
 	RPC_UNICODE_STRING* ServerName;
 	BYTE ChallengeToClient[RDPEAR_MSV1_0_CHALLENGE_LENGTH];
 } Lm20GetNtlm3ChallengeResponseReq;
+
+RDPEAR_COMMON_MESSAGE_DECL(Lm20GetNtlm3ChallengeResponseReq);
+
+#undef RDPEAR_COMMON_MESSAGE_DECL
 
 typedef struct
 {

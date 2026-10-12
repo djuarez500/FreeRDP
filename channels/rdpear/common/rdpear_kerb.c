@@ -33,10 +33,14 @@
 #include <winpr/sspi.h>
 #include <winpr/collections.h>
 #include <winpr/ndr.h>
+#include <winpr/crypto.h>
+#include <winpr/sysinfo.h>
+#include <winpr/credssp.h>
 
 #include <rdpear-common/rdpear_common.h>
 #include <rdpear-common/rdpear_asn1.h>
 #include <rdpear-common/rdpear_kerb.h>
+#include <rdpear-common/rdpear_ntlm.h>
 
 #include <freerdp/settings.h>
 #include <freerdp/channels/log.h>
@@ -55,6 +59,8 @@ krb5_error_code encode_krb5_ap_rep(const krb5_ap_rep* rep, krb5_data** code_out)
 typedef struct
 {
 	krb5_context krbContext;
+	const BYTE* ntlmKey; /* seals the forwarded NTLM supplemental secret, NULL if none */
+	size_t ntlmKeyLen;
 } RDPEAR_SERVICE;
 
 static const BYTE payloadHeader[16] = { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -687,14 +693,199 @@ static BOOL rdpear_kerb_call(const RDPEAR_SERVICE* rdpear, const KerbCredIsoRemo
 	}
 }
 
+#define MSV_AV_TIMESTAMP 0x0007 /* [MS-NLMP] 2.2.2.1 AV_PAIR AvId MsvAvTimestamp */
+
+/* Open the NTLM supplemental credential the target relayed back (the sealed NT OWF) with the
+ * client's own sealing key. */
+static BOOL rdpear_ntlm_open_secret(const RDPEAR_SERVICE* rdpear,
+                                    const MSV1_0_REMOTE_ENCRYPTED_SECRETS* credential,
+                                    BYTE owf[RDPEAR_NTOWF_LENGTH])
+{
+	SecBuffer secret = WINPR_C_ARRAY_INIT;
+	BOOL rc = FALSE;
+
+	if (!credential)
+		return FALSE;
+
+	if (!winpr_ntlm_rguard_secrets_unseal(rdpear->ntlmKey, rdpear->ntlmKeyLen,
+	                                      credential->reserved6, credential->reservedSize.count,
+	                                      &secret))
+	{
+		WLog_ERR(TAG, "failed to unseal the forwarded NTLM secret");
+		return FALSE;
+	}
+
+	if (secret.cbBuffer == RDPEAR_NTOWF_LENGTH)
+	{
+		memcpy(owf, secret.pvBuffer, RDPEAR_NTOWF_LENGTH);
+		rc = TRUE;
+	}
+	else
+		WLog_ERR(TAG, "unexpected NTLM secret length %" PRIu32, secret.cbBuffer);
+
+	if (secret.pvBuffer)
+		SecureZeroMemory(secret.pvBuffer, secret.cbBuffer);
+	sspi_SecBufferFree(&secret);
+	return rc;
+}
+
+/* Service a redirected MSV1_0 Lm20GetNtlm3ChallengeResponse (callId 0x202).
+ *
+ * The target relayed back the NTLM supplemental credential the client forwarded (the sealed NT
+ * OWF); we open it with the client's own sealing key, derive NTOWFv2 for the redirected user/domain
+ * and compute the NTLMv2 response over the server challenge and the server-provided target info,
+ * exactly as a local NTLM client would, so the target can complete the second-hop authentication
+ * without ever holding the password. [MS-NLMP] 3.3.2. */
+static UINT32 rdpear_ntlm_Lm20GetNtlm3ChallengeResponse(const RDPEAR_SERVICE* rdpear,
+                                                        const Lm20GetNtlm3ChallengeResponseReq* req,
+                                                        Lm20GetNtlm3ChallengeResponseResp* resp)
+{
+	UINT32 status = ERROR_INVALID_DATA;
+	BYTE owf[RDPEAR_NTOWF_LENGTH] = { 0 };
+	BYTE ntowfv2[RDPEAR_NTOWF_LENGTH] = { 0 };
+	BYTE ntProof[16] = { 0 };
+	BYTE sessionBaseKey[16] = { 0 };
+	BYTE clientChallenge[8] = { 0 };
+	BYTE timestamp[8] = { 0 };
+	BYTE* temp = nullptr;
+	size_t tempLen = 0;
+	BYTE* ntResponse = nullptr;
+
+	WLog_DBG(TAG, "-> Lm20GetNtlm3ChallengeResponse");
+
+	if (!req->UserName || !req->LogonDomainName || !req->ServerName)
+		goto out;
+
+	if (!rdpear_ntlm_open_secret(rdpear, req->Credential, owf))
+		goto out;
+
+	/* NTOWFv2 = HMAC-MD5(NTOWFv1, upper(user) || domain) */
+	if (!rdpear_ntowf_v2(owf, req->UserName->Buffer, req->UserName->strLength,
+	                     req->LogonDomainName->Buffer, req->LogonDomainName->strLength, ntowfv2))
+		goto out;
+
+	const BYTE* targetInfo = (const BYTE*)req->ServerName->Buffer;
+	const size_t targetInfoLen = req->ServerName->lenHints.length;
+
+	/* Carry the server's timestamp into the temp when present, else use the current time. */
+	const BYTE* tsPtr = nullptr;
+	UINT16 tsLen = 0;
+	if (rdpear_ntlm_av_find(targetInfo, targetInfoLen, MSV_AV_TIMESTAMP, &tsPtr, &tsLen) &&
+	    (tsLen == sizeof(timestamp)))
+	{
+		memcpy(timestamp, tsPtr, sizeof(timestamp));
+	}
+	else
+	{
+		/* a FILETIME, little-endian */
+		FILETIME ft = { 0 };
+		GetSystemTimeAsFileTime(&ft);
+		wStream tbuffer = WINPR_C_ARRAY_INIT;
+		wStream* ts = Stream_StaticInit(&tbuffer, timestamp, sizeof(timestamp));
+		Stream_Write_UINT32(ts, ft.dwLowDateTime);
+		Stream_Write_UINT32(ts, ft.dwHighDateTime);
+	}
+
+	if (winpr_RAND(clientChallenge, sizeof(clientChallenge)) != 0)
+		goto out;
+
+	if (!rdpear_ntlm_v2_build_temp(timestamp, clientChallenge, targetInfo, targetInfoLen, &temp,
+	                               &tempLen))
+		goto out;
+
+	if (!rdpear_ntlm_v2_response(ntowfv2, req->ChallengeToClient, temp, tempLen, ntProof,
+	                             sessionBaseKey))
+		goto out;
+
+	/* NtChallengeResponse = NTProofStr(16) || temp; a USHORT length on the wire */
+	if (tempLen > UINT16_MAX - sizeof(ntProof))
+		goto out;
+	const size_t ntResponseLen = sizeof(ntProof) + tempLen;
+	/* an NDR referent: rdpear_ntlm_output_free releases it with the rest of the output */
+	const WinPrNdrArrayHints ntResponseHints = { (UINT32)ntResponseLen };
+	ntResponse =
+	    winpr_ndr_pointer_new(winpr_ndr_uint8Array_descr(), &ntResponseHints, ntResponseLen);
+	if (!ntResponse)
+		goto out;
+	wStream rbuffer = WINPR_C_ARRAY_INIT;
+	wStream* rs = Stream_StaticInit(&rbuffer, ntResponse, ntResponseLen);
+	Stream_Write(rs, ntProof, sizeof(ntProof)); /* NTProofStr */
+	Stream_Write(rs, temp, tempLen);            /* temp */
+
+	resp->Ntlm3Response = ntResponse;
+	ntResponse = nullptr;
+	resp->Ntlm3ResponseLength = ntResponseHints;
+	memcpy(resp->UserSessionKey.Data, sessionBaseKey, sizeof(resp->UserSessionKey.Data));
+	/* Lm3Response and LmSessionKey stay zero: with a server timestamp present the LM response is
+	 * suppressed ([MS-NLMP] 3.1.5.1.2). */
+
+	status = 0;
+
+out:
+	winpr_ndr_pointer_release(ntResponse);
+	free(temp);
+	SecureZeroMemory(owf, sizeof(owf));
+	SecureZeroMemory(ntowfv2, sizeof(ntowfv2));
+	SecureZeroMemory(sessionBaseKey, sizeof(sessionBaseKey));
+	return status;
+}
+
+/* Service a redirected MSV1_0 CalculateNtResponse (callId 0x203), the NTLMv1 response a target
+ * configured for NTLMv1 asks for: DESL(NTOWFv1, NtChallenge) ([MS-NLMP] 3.3.1). */
+static UINT32 rdpear_ntlm_CalculateNtResponse(const RDPEAR_SERVICE* rdpear,
+                                              const CalculateNtResponseReq* req, NT_RESPONSE* resp)
+{
+	UINT32 status = ERROR_INVALID_DATA;
+	BYTE owf[RDPEAR_NTOWF_LENGTH] = { 0 };
+
+	WLog_DBG(TAG, "-> CalculateNtResponse");
+
+	if (!req->NtChallenge || !rdpear_ntlm_open_secret(rdpear, req->Credential, owf))
+		goto out;
+
+	if (!rdpear_ntlm_v1_response(owf, req->NtChallenge->Data, resp->Data))
+		goto out;
+
+	status = 0;
+out:
+	SecureZeroMemory(owf, sizeof(owf));
+	return status;
+}
+
+/* Service a redirected MSV1_0 CalculateUserSessionKeyNt (callId 0x204), which follows
+ * CalculateNtResponse with the response it returned: the NTLMv1 session base key,
+ * MD4(NTOWFv1) ([MS-NLMP] 3.3.1). */
+static UINT32 rdpear_ntlm_CalculateUserSessionKeyNt(const RDPEAR_SERVICE* rdpear,
+                                                    const CalculateUserSessionKeyNtReq* req,
+                                                    USER_SESSION_KEY* resp)
+{
+	UINT32 status = ERROR_INVALID_DATA;
+	BYTE owf[RDPEAR_NTOWF_LENGTH] = { 0 };
+
+	WLog_DBG(TAG, "-> CalculateUserSessionKeyNt");
+
+	if (!rdpear_ntlm_open_secret(rdpear, req->Credential, owf))
+		goto out;
+
+	if (!rdpear_ntlm_v1_user_session_key(owf, resp->Data))
+		goto out;
+
+	status = 0;
+out:
+	SecureZeroMemory(owf, sizeof(owf));
+	return status;
+}
+
 /** @brief handles a NTLM call
  *
- * The NTLM supplemental credentials are not sent by the client, the calls using them are answered
- * with STATUS_NOT_SUPPORTED.
+ * The calls that use the NTLM supplemental credentials need the key the client sealed them with
+ * (forwarded as SECPKG_ATTR_WINPR_NTLM_RGUARD_KEY); without it they are answered with
+ * STATUS_NOT_SUPPORTED.
  *
  * @return TRUE if the call is handled, FALSE if it's not supported: it's answered without data
  */
-static BOOL rdpear_ntlm_call(const NtlmCredIsoRemoteInput* input, NtlmCredIsoRemoteOutput* output)
+static BOOL rdpear_ntlm_call(const RDPEAR_SERVICE* rdpear, const NtlmCredIsoRemoteInput* input,
+                             NtlmCredIsoRemoteOutput* output)
 {
 	output->CallId = input->CallId;
 	switch (input->CallId)
@@ -707,8 +898,26 @@ static BOOL rdpear_ntlm_call(const NtlmCredIsoRemoteInput* input, NtlmCredIsoRem
 		case RemoteCallNtlmLm20GetNtlm3ChallengeResponse:
 		case RemoteCallNtlmCalculateNtResponse:
 		case RemoteCallNtlmCalculateUserSessionKeyNt:
+			if (!rdpear->ntlmKey || (rdpear->ntlmKeyLen == 0))
+			{
+				WLog_DBG(TAG, "-> NTLM callId=0x%x: no NTLM credentials", input->CallId);
+				output->Status = (UINT32)STATUS_NOT_SUPPORTED;
+				return TRUE;
+			}
+			if (input->CallId == RemoteCallNtlmLm20GetNtlm3ChallengeResponse)
+				output->Status = rdpear_ntlm_Lm20GetNtlm3ChallengeResponse(
+				    rdpear, &input->Input.Lm20GetNtlm3ChallengeResponse,
+				    &output->Output.Lm20GetNtlm3ChallengeResponse);
+			else if (input->CallId == RemoteCallNtlmCalculateNtResponse)
+				output->Status = rdpear_ntlm_CalculateNtResponse(
+				    rdpear, &input->Input.CalculateNtResponse, &output->Output.CalculateNtResponse);
+			else
+				output->Status = rdpear_ntlm_CalculateUserSessionKeyNt(
+				    rdpear, &input->Input.CalculateUserSessionKeyNt,
+				    &output->Output.CalculateUserSessionKeyNt);
+			return TRUE;
 		case RemoteCallNtlmCompareCredentials:
-			WLog_DBG(TAG, "-> NTLM callId=0x%x: no NTLM credentials", input->CallId);
+			WLog_DBG(TAG, "-> NTLM callId=0x%x: not supported", input->CallId);
 			output->Status = (UINT32)STATUS_NOT_SUPPORTED;
 			return TRUE;
 		default:
@@ -771,7 +980,7 @@ static wStream* rdpear_kerb_dispatch(const RDPEAR_SERVICE* rdpear,
 		if (!rdpear_ntlm_input_read(decoder, s, &ntlmInput))
 			goto out;
 
-		(void)rdpear_ntlm_call(&ntlmInput, &ntlmOutput);
+		(void)rdpear_ntlm_call(rdpear, &ntlmInput, &ntlmOutput);
 		encoded = rdpear_ntlm_output_write(encoder, respStream, &ntlmOutput);
 	}
 
@@ -794,12 +1003,15 @@ out:
 	return result;
 }
 
-wStream* rdpear_kerb_service(krb5_context krb, const BYTE* plaintext, size_t plaintextLen)
+wStream* rdpear_kerb_service(krb5_context krb, const BYTE* ntlmKey, size_t ntlmKeyLen,
+                             const BYTE* plaintext, size_t plaintextLen)
 {
 	WINPR_ASSERT(krb);
 	WINPR_ASSERT(plaintext);
 
-	const RDPEAR_SERVICE service = { .krbContext = krb };
+	const RDPEAR_SERVICE service = { .krbContext = krb,
+		                             .ntlmKey = ntlmKey,
+		                             .ntlmKeyLen = ntlmKeyLen };
 
 	wStream decodedStream = WINPR_C_ARRAY_INIT;
 	Stream_StaticConstInit(&decodedStream, plaintext, plaintextLen);
