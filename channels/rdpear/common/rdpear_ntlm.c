@@ -167,3 +167,65 @@ out:
 	winpr_HMAC_Free(hmac);
 	return rc;
 }
+
+BOOL rdpear_ntlm_av_find(const BYTE* avPairs, size_t len, UINT16 avId, const BYTE** pvalue,
+                         UINT16* pvalueLen)
+{
+	if (!avPairs || !pvalue || !pvalueLen)
+		return FALSE;
+
+	size_t off = 0;
+	while (off + 4 <= len)
+	{
+		const UINT16 id = (UINT16)(avPairs[off] | ((UINT16)avPairs[off + 1] << 8));
+		const UINT16 l = (UINT16)(avPairs[off + 2] | ((UINT16)avPairs[off + 3] << 8));
+		off += 4;
+
+		if (id == 0 /* MsvAvEOL */)
+			break;
+		if (off + l > len)
+			return FALSE;
+		if (id == avId)
+		{
+			*pvalue = &avPairs[off];
+			*pvalueLen = l;
+			return TRUE;
+		}
+		off += l;
+	}
+	return FALSE;
+}
+
+BOOL rdpear_ntlm_v2_build_temp(const BYTE timestamp[8], const BYTE clientChallenge[8],
+                               const BYTE* targetInfo, size_t targetInfoLen, BYTE** ptemp,
+                               size_t* ptempLen)
+{
+	/* 1 + 1 + Z(6) + 8 + 8 + Z(4) + targetInfo + Z(4) = 32 + targetInfoLen */
+	if (!timestamp || !clientChallenge || (!targetInfo && (targetInfoLen != 0)) || !ptemp ||
+	    !ptempLen)
+		return FALSE;
+	if (targetInfoLen > SIZE_MAX - 32)
+		return FALSE;
+
+	const size_t tempLen = 32 + targetInfoLen;
+	BYTE* temp = (BYTE*)calloc(1, tempLen);
+	if (!temp)
+		return FALSE;
+
+	size_t o = 0;
+	temp[o++] = 0x01; /* RespType */
+	temp[o++] = 0x01; /* HiRespType */
+	o += 6;           /* Reserved1(2) + Reserved2(4) == Z(6) */
+	memcpy(&temp[o], timestamp, 8);
+	o += 8;
+	memcpy(&temp[o], clientChallenge, 8);
+	o += 8;
+	o += 4; /* Z(4) */
+	if (targetInfoLen > 0)
+		memcpy(&temp[o], targetInfo, targetInfoLen);
+	/* trailing Z(4) at o + targetInfoLen is left zero by calloc */
+
+	*ptemp = temp;
+	*ptempLen = tempLen;
+	return TRUE;
+}

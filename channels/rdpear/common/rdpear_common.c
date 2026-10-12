@@ -21,6 +21,7 @@
 #include <rdpear-common/ndr.h>
 
 #include <stddef.h>
+#include <winpr/cast.h>
 #include <winpr/print.h>
 #include <freerdp/channels/log.h>
 
@@ -573,3 +574,261 @@ static const NdrStructDescr PackApReplyResp_struct = { "PackApReplyResp",
 	                                                   PackApReplyResp_fields };
 
 RDPEAR_SIMPLE_MESSAGE_TYPE(PackApReplyResp)
+
+/* ==================== MSV1_0_REMOTE_ENCRYPTED_SECRETS ===================== */
+
+static const NdrFieldStruct MSV1_0_REMOTE_ENCRYPTED_SECRETS_fields[] = {
+	{ "reserved0", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[0]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "reserved1", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[1]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "reserved2", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[2]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "reserved3", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[3]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "reserved4", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[4]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "reserved5", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[5]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "reserved6", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, reserved[6]), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "EncryptedSecretsSize",
+	  offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, EncryptedSecretsHints.count), NDR_NOT_POINTER, -1,
+	  &ndr_uint32_descr_s },
+	{ "EncryptedSecrets", offsetof(MSV1_0_REMOTE_ENCRYPTED_SECRETS, EncryptedSecrets),
+	  NDR_POINTER_NON_NULL, 7, &ndr_uint8Array_descr_s },
+};
+static const NdrStructDescr MSV1_0_REMOTE_ENCRYPTED_SECRETS_struct = {
+	"MSV1_0_REMOTE_ENCRYPTED_SECRETS", ARRAYSIZE(MSV1_0_REMOTE_ENCRYPTED_SECRETS_fields),
+	MSV1_0_REMOTE_ENCRYPTED_SECRETS_fields
+};
+
+RDPEAR_SIMPLE_MESSAGE_TYPE(MSV1_0_REMOTE_ENCRYPTED_SECRETS)
+
+/* ================= Lm20GetNtlm3ChallengeResponseReq (0x202) ================ */
+/* Request arm: 4 referent pointers (EncryptedSecrets + three RPC_UNICODE_STRINGs) followed by the
+ * inline 8-byte ChallengeToClient; the pointed data is deferred in field order. Hand-written
+ * because the inline fixed byte array is not expressible with the generic struct descriptor. */
+
+BOOL ndr_read_Lm20GetNtlm3ChallengeResponseReq(NdrContext* context, wStream* s, const void* hints,
+                                               Lm20GetNtlm3ChallengeResponseReq* obj)
+{
+	WINPR_ASSERT(obj);
+	WINPR_UNUSED(hints);
+
+	NdrDeferredEntry deferreds[] = {
+		{ NDR_PTR_NULL, "Lm20Req.EncryptedSecrets", nullptr, (void*)&obj->EncryptedSecrets,
+		  ndr_MSV1_0_REMOTE_ENCRYPTED_SECRETS_descr() },
+		{ NDR_PTR_NULL, "Lm20Req.UserName", nullptr, (void*)&obj->UserName,
+		  ndr_RPC_UNICODE_STRING_descr() },
+		{ NDR_PTR_NULL, "Lm20Req.LogonDomainName", nullptr, (void*)&obj->LogonDomainName,
+		  ndr_RPC_UNICODE_STRING_descr() },
+		{ NDR_PTR_NULL, "Lm20Req.ServerName", nullptr, (void*)&obj->ServerName,
+		  ndr_RPC_UNICODE_STRING_descr() }
+	};
+
+	for (size_t i = 0; i < ARRAYSIZE(deferreds); i++)
+	{
+		if (!ndr_read_refpointer(context, s, &deferreds[i].ptrId) || !deferreds[i].ptrId)
+			return FALSE;
+	}
+
+	for (size_t i = 0; i < ARRAYSIZE(obj->ChallengeToClient); i++)
+	{
+		if (!ndr_read_uint8(context, s, &obj->ChallengeToClient[i]))
+			return FALSE;
+	}
+
+	return ndr_push_deferreds(context, deferreds, ARRAYSIZE(deferreds));
+}
+
+static BOOL ndr_descr_read_Lm20GetNtlm3ChallengeResponseReq(NdrContext* context, wStream* s,
+                                                            const void* hints, void* obj)
+{
+	return ndr_read_Lm20GetNtlm3ChallengeResponseReq(context, s, hints, obj);
+}
+
+BOOL ndr_write_Lm20GetNtlm3ChallengeResponseReq(NdrContext* context, wStream* s, const void* hints,
+                                                const Lm20GetNtlm3ChallengeResponseReq* obj)
+{
+	WINPR_UNUSED(context);
+	WINPR_UNUSED(s);
+	WINPR_UNUSED(hints);
+	WINPR_UNUSED(obj);
+	WLog_ERR(TAG, "writing Lm20GetNtlm3ChallengeResponseReq is not implemented");
+	return FALSE;
+}
+
+void ndr_destroy_Lm20GetNtlm3ChallengeResponseReq(NdrContext* context, const void* hints,
+                                                  Lm20GetNtlm3ChallengeResponseReq* obj)
+{
+	WINPR_UNUSED(hints);
+	if (!obj)
+		return;
+
+	if (obj->EncryptedSecrets)
+	{
+		ndr_destroy_MSV1_0_REMOTE_ENCRYPTED_SECRETS(context, nullptr, obj->EncryptedSecrets);
+		free(obj->EncryptedSecrets);
+		obj->EncryptedSecrets = nullptr;
+	}
+	if (obj->UserName)
+	{
+		ndr_destroy_RPC_UNICODE_STRING(context, nullptr, obj->UserName);
+		free(obj->UserName);
+		obj->UserName = nullptr;
+	}
+	if (obj->LogonDomainName)
+	{
+		ndr_destroy_RPC_UNICODE_STRING(context, nullptr, obj->LogonDomainName);
+		free(obj->LogonDomainName);
+		obj->LogonDomainName = nullptr;
+	}
+	if (obj->ServerName)
+	{
+		ndr_destroy_RPC_UNICODE_STRING(context, nullptr, obj->ServerName);
+		free(obj->ServerName);
+		obj->ServerName = nullptr;
+	}
+}
+
+static void ndr_descr_destroy_Lm20GetNtlm3ChallengeResponseReq(NdrContext* context,
+                                                               const void* hints, void* obj)
+{
+	ndr_destroy_Lm20GetNtlm3ChallengeResponseReq(context, hints, obj);
+}
+
+void ndr_dump_Lm20GetNtlm3ChallengeResponseReq(wLog* logger, UINT32 lvl, size_t indentLevel,
+                                               const Lm20GetNtlm3ChallengeResponseReq* obj)
+{
+	WINPR_UNUSED(indentLevel);
+	WINPR_UNUSED(obj);
+	WLog_Print(logger, lvl, "Lm20GetNtlm3ChallengeResponseReq");
+}
+
+static void ndr_descr_dump_Lm20GetNtlm3ChallengeResponseReq(wLog* logger, UINT32 lvl,
+                                                            size_t indentLevel, const void* obj)
+{
+	ndr_dump_Lm20GetNtlm3ChallengeResponseReq(logger, lvl, indentLevel, obj);
+}
+
+static const NdrMessageDescr Lm20GetNtlm3ChallengeResponseReq_descr_s = {
+	NDR_ARITY_SIMPLE,
+	sizeof(Lm20GetNtlm3ChallengeResponseReq),
+	ndr_descr_read_Lm20GetNtlm3ChallengeResponseReq,
+	nullptr,
+	ndr_descr_destroy_Lm20GetNtlm3ChallengeResponseReq,
+	ndr_descr_dump_Lm20GetNtlm3ChallengeResponseReq
+};
+
+NdrMessageType ndr_Lm20GetNtlm3ChallengeResponseReq_descr(void)
+{
+	return &Lm20GetNtlm3ChallengeResponseReq_descr_s;
+}
+
+/* ================ Lm20GetNtlm3ChallengeResponseResp (0x202) ================ */
+/* Response arm: inline NtResponseLength (u16) + NtResponse referent + the inline fixed arrays
+ * Lm3Response[24]/UserSessionKey[16]/ClearBlock[8], with the NtResponse conformant byte array
+ * deferred. Hand-written for the u16 length and the inline fixed arrays. */
+
+BOOL ndr_read_Lm20GetNtlm3ChallengeResponseResp(NdrContext* context, wStream* s, const void* hints,
+                                                Lm20GetNtlm3ChallengeResponseResp* obj)
+{
+	WINPR_UNUSED(context);
+	WINPR_UNUSED(s);
+	WINPR_UNUSED(hints);
+	WINPR_UNUSED(obj);
+	WLog_ERR(TAG, "reading Lm20GetNtlm3ChallengeResponseResp is not implemented");
+	return FALSE;
+}
+
+BOOL ndr_write_Lm20GetNtlm3ChallengeResponseResp(NdrContext* context, wStream* s, const void* hints,
+                                                 const Lm20GetNtlm3ChallengeResponseResp* obj)
+{
+	WINPR_ASSERT(obj);
+	WINPR_UNUSED(hints);
+
+	if (!obj->NtResponse)
+	{
+		WLog_ERR(TAG, "Lm20Resp.NtResponse can't be null");
+		return FALSE;
+	}
+
+	ndr_refid ptrId = NDR_PTR_NULL;
+	BOOL isNew = FALSE;
+
+	if (!ndr_write_uint16(context, s, obj->NtResponseLength))
+		return FALSE;
+
+	if (!ndr_context_allocatePtr(context, obj->NtResponse, &ptrId, &isNew) ||
+	    !ndr_write_uint32(context, s, ptrId))
+		return FALSE;
+
+	if (!ndr_write_data(context, s, obj->Lm3Response, sizeof(obj->Lm3Response)) ||
+	    !ndr_write_data(context, s, obj->UserSessionKey, sizeof(obj->UserSessionKey)) ||
+	    !ndr_write_data(context, s, obj->ClearBlock, sizeof(obj->ClearBlock)))
+		return FALSE;
+
+	if (isNew)
+	{
+		/* NtResponse is a (non-const) byte buffer; only the enclosing obj is const. The deferred
+		 * refers into obj, which outlives the deferred write in the dispatch. */
+		void* ntResponse = obj->NtResponse;
+		NdrDeferredEntry deferred = { ptrId, "Lm20Resp.NtResponse",
+			                          WINPR_CAST_CONST_PTR_AWAY(&obj->NtResponseHints, void*),
+			                          ntResponse, ndr_uint8Array_descr() };
+		return ndr_push_deferreds(context, &deferred, 1);
+	}
+	return TRUE;
+}
+
+static BOOL ndr_descr_write_Lm20GetNtlm3ChallengeResponseResp(NdrContext* context, wStream* s,
+                                                              const void* hints, const void* obj)
+{
+	return ndr_write_Lm20GetNtlm3ChallengeResponseResp(context, s, hints, obj);
+}
+
+void ndr_destroy_Lm20GetNtlm3ChallengeResponseResp(NdrContext* context, const void* hints,
+                                                   Lm20GetNtlm3ChallengeResponseResp* obj)
+{
+	WINPR_UNUSED(context);
+	WINPR_UNUSED(hints);
+	if (!obj)
+		return;
+	free(obj->NtResponse);
+	obj->NtResponse = nullptr;
+}
+
+static void ndr_descr_destroy_Lm20GetNtlm3ChallengeResponseResp(NdrContext* context,
+                                                                const void* hints, void* obj)
+{
+	ndr_destroy_Lm20GetNtlm3ChallengeResponseResp(context, hints, obj);
+}
+
+void ndr_dump_Lm20GetNtlm3ChallengeResponseResp(wLog* logger, UINT32 lvl, size_t indentLevel,
+                                                const Lm20GetNtlm3ChallengeResponseResp* obj)
+{
+	WINPR_UNUSED(indentLevel);
+	WINPR_UNUSED(obj);
+	WLog_Print(logger, lvl, "Lm20GetNtlm3ChallengeResponseResp");
+}
+
+static void ndr_descr_dump_Lm20GetNtlm3ChallengeResponseResp(wLog* logger, UINT32 lvl,
+                                                             size_t indentLevel, const void* obj)
+{
+	ndr_dump_Lm20GetNtlm3ChallengeResponseResp(logger, lvl, indentLevel, obj);
+}
+
+static const NdrMessageDescr Lm20GetNtlm3ChallengeResponseResp_descr_s = {
+	NDR_ARITY_SIMPLE,
+	sizeof(Lm20GetNtlm3ChallengeResponseResp),
+	nullptr,
+	ndr_descr_write_Lm20GetNtlm3ChallengeResponseResp,
+	ndr_descr_destroy_Lm20GetNtlm3ChallengeResponseResp,
+	ndr_descr_dump_Lm20GetNtlm3ChallengeResponseResp
+};
+
+NdrMessageType ndr_Lm20GetNtlm3ChallengeResponseResp_descr(void)
+{
+	return &Lm20GetNtlm3ChallengeResponseResp_descr_s;
+}

@@ -6,7 +6,7 @@ if(BUILD_TESTING_INTERNAL)
 
   disable_warnings_for_directory(${CMAKE_CURRENT_BINARY_DIR})
 
-  set(TEST_RDPEAR_TESTS TestNdrEar.c TestRdpearKerb.c TestRdpearNtlm.c)
+  set(TEST_RDPEAR_TESTS TestNdrEar.c TestRdpearKerb.c TestRdpearNtlm.c TestRdpearNtlmLm20.c)
 
   create_test_sourcelist(TEST_RDPEAR_SRCS TestRdpear.c ${TEST_RDPEAR_TESTS})
 

@@ -48,8 +48,8 @@ int TestRdpearKerb(int argc, char* argv[])
 	/* The handler runs krb5 crypto only on keys carried in the request (NegotiateVersion carries
 	 * none), so this exercises the full decode -> dispatch -> encode path without a ticket cache.
 	 */
-	wStream* resp =
-	    rdpear_kerb_service(krb, kerbNegotiateVersionRequest, sizeof(kerbNegotiateVersionRequest));
+	wStream* resp = rdpear_kerb_service(krb, NULL, 0, kerbNegotiateVersionRequest,
+	                                    sizeof(kerbNegotiateVersionRequest));
 	krb5_free_context(krb);
 
 	if (!resp)

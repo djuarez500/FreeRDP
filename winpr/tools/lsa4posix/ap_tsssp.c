@@ -477,11 +477,19 @@ BOOL ap_tsssp_call_package(const BYTE* submit, UINT32 submitLen, NTSTATUS* proto
 	 * throwaway krb5 context suffices) and get the plaintext response payload. */
 	krb5_context krb = nullptr;
 	wStream* respPlain = nullptr;
+	/* The forwarded NTLM sealing key (if any) lets the NTLM handlers open the redirected secrets.
+	 */
+	SecPkgContext_WinPrNtlmRGuardKey rguardKey = { 0 };
+	(void)g_table->QueryContextAttributesW(&ctx->ctx, SECPKG_ATTR_WINPR_NTLM_RGUARD_KEY,
+	                                       &rguardKey);
 	if (krb5_init_context(&krb) == 0)
 	{
-		respPlain = rdpear_kerb_service(krb, buffers[1].pvBuffer, buffers[1].cbBuffer);
+		respPlain =
+		    rdpear_kerb_service(krb, rguardKey.KeyLength ? rguardKey.Key : nullptr,
+		                        rguardKey.KeyLength, buffers[1].pvBuffer, buffers[1].cbBuffer);
 		krb5_free_context(krb);
 	}
+	SecureZeroMemory(&rguardKey, sizeof(rguardKey));
 	free(data);
 	if (!respPlain)
 	{

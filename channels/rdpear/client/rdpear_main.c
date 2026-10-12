@@ -94,7 +94,9 @@ static UINT rdpear_on_data_received(IWTSVirtualChannelCallback* pChannelCallback
 	if (!freerdp_nla_decrypt(rdpear->rdp_context, &inBuffer, &decrypted))
 		goto out;
 
-	respPlain = rdpear_kerb_service(rdpear->krbContext, decrypted.pvBuffer, decrypted.cbBuffer);
+	/* The in-process path forwards no NTLM supplemental credential, so no sealing key. */
+	respPlain =
+	    rdpear_kerb_service(rdpear->krbContext, nullptr, 0, decrypted.pvBuffer, decrypted.cbBuffer);
 	if (!respPlain)
 		goto out;
 

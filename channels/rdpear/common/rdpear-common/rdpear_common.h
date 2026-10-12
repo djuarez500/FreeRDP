@@ -239,6 +239,47 @@ typedef struct
 
 RDPEAR_COMMON_MESSAGE_DECL(PackApReplyResp);
 
+/** @brief [MS-RDPEAR] MSV1_0_REMOTE_ENCRYPTED_SECRETS
+ *
+ * The redirected NTLM calls carry the forwarded NTLM secret here. For Remote Credential Guard the
+ * payload is the sealed blob the client sent in the credType-6 supplementalCreds and the target
+ * relayed back verbatim; the client opens it with winpr_ntlm_rguard_secrets_unseal. The leading
+ * fields are opaque to us (CredentialKey/key-type/flags, all zero on the wire for the relayed
+ * strong form); only EncryptedSecrets is consumed. */
+typedef struct
+{
+	UINT32 reserved[7];
+	NdrArrayHints EncryptedSecretsHints;
+	BYTE* EncryptedSecrets;
+} MSV1_0_REMOTE_ENCRYPTED_SECRETS;
+
+RDPEAR_COMMON_MESSAGE_DECL(MSV1_0_REMOTE_ENCRYPTED_SECRETS);
+
+/** @brief [MS-RDPEAR] 2.2.2.2.x NTLM Lm20GetNtlm3ChallengeResponse request (callId 0x202) */
+typedef struct
+{
+	MSV1_0_REMOTE_ENCRYPTED_SECRETS* EncryptedSecrets;
+	RPC_UNICODE_STRING* UserName;
+	RPC_UNICODE_STRING* LogonDomainName;
+	RPC_UNICODE_STRING* ServerName;
+	BYTE ChallengeToClient[8];
+} Lm20GetNtlm3ChallengeResponseReq;
+
+RDPEAR_COMMON_MESSAGE_DECL(Lm20GetNtlm3ChallengeResponseReq);
+
+/** @brief [MS-RDPEAR] 2.2.2.2.x NTLM Lm20GetNtlm3ChallengeResponse response (callId 0x202) */
+typedef struct
+{
+	UINT16 NtResponseLength;
+	NdrArrayHints NtResponseHints;
+	BYTE* NtResponse;
+	BYTE Lm3Response[24];
+	BYTE UserSessionKey[16];
+	BYTE ClearBlock[8];
+} Lm20GetNtlm3ChallengeResponseResp;
+
+RDPEAR_COMMON_MESSAGE_DECL(Lm20GetNtlm3ChallengeResponseResp);
+
 #undef RDPEAR_COMMON_MESSAGE_DECL
 
 #endif /* FREERDP_CHANNEL_RDPEAR_COMMON_H */
