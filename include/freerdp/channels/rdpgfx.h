@@ -151,7 +151,9 @@ typedef enum WINPR_C23_ENUM_TYPE(uint32_t)
 	RDPGFX_CAPS_FLAG_SCALEDMAP_DISABLE = 0x00000080U /* 10.7+ */
 #if defined(WITH_GFX_AZURE)
 	,
-	RDPGFX_CAPS_FLAG_SCP_DISABLE = 0x00000100 /* 11.0+, undocumented, Azure only */
+	RDPGFX_CAPS_FLAG_SCP_DISABLE = 0x00000100,    /* 11.0+, undocumented, Azure only */
+	RDPGFX_CAPS_FLAG_HEVC_ENABLE = 0x00000400,    /* 11.2+, undocumented */
+	RDPGFX_CAPS_FLAG_HEVC444_ENABLE = 0x00002000 /* 11.5, undocumented, needs HEVC_ENABLE */
 #endif
 #if defined(WITH_GFX_AV1)
 	,
@@ -203,7 +205,15 @@ typedef enum WINPR_C23_ENUM_TYPE(uint16_t)
 	RDPGFX_CODECID_CAPROGRESSIVE_V2 = 0x000Du,
 	RDPGFX_CODECID_AVC444 = 0x000Eu,
 	RDPGFX_CODECID_AVC444v2 = 0x000Fu,
+#if defined(WITH_GFX_AZURE)
+	RDPGFX_CODECID_HEVC420 = 0x0010u, /**< undocumented, only valid with
+		                               * RDPGFX_CAPS_FLAG_HEVC_ENABLE confirmed */
+	RDPGFX_CODECID_HEVC444 = 0x0012u, /**< undocumented, only valid with
+		                               * RDPGFX_CAPS_FLAG_HEVC444_ENABLE confirmed */
+	RDPGFX_CODECID_MAX = 0x0013u
+#else
 	RDPGFX_CODECID_MAX = 0x0010u
+#endif
 } RDPGFX_CODECID;
 
 #define RDPGFX_WIRE_TO_SURFACE_PDU_1_SIZE 17

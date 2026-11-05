@@ -92,6 +92,14 @@ const char* rdpgfx_get_codec_id_string(UINT16 codecId)
 		case RDPGFX_CODECID_AVC444v2:
 			return "RDPGFX_CODECID_AVC444v2";
 
+#if defined(WITH_GFX_AZURE)
+		case RDPGFX_CODECID_HEVC420:
+			return "RDPGFX_CODECID_HEVC420";
+
+		case RDPGFX_CODECID_HEVC444:
+			return "RDPGFX_CODECID_HEVC444";
+#endif
+
 		case RDPGFX_CODECID_ALPHA:
 			return "RDPGFX_CODECID_ALPHA";
 
@@ -158,6 +166,8 @@ static const char* rdpgfx_caps_flag_str_int(UINT32 flag)
 		EVCASE(RDPGFX_CAPS_FLAG_SCALEDMAP_DISABLE);
 #if defined(WITH_GFX_AZURE)
 		EVCASE(RDPGFX_CAPS_FLAG_SCP_DISABLE);
+		EVCASE(RDPGFX_CAPS_FLAG_HEVC_ENABLE);
+		EVCASE(RDPGFX_CAPS_FLAG_HEVC444_ENABLE);
 #endif
 #if defined(WITH_GFX_AV1)
 		EVCASE(RDPGFX_CAPS_FLAG_AV1_I444_SUPPORTED);
@@ -179,7 +189,7 @@ const char* rdpgfx_caps_flag_str(UINT32 flag)
 	const char prefix[] = "RDPGFX_CAPS_FLAG_";
 	if (strncmp(val, prefix, sizeof(prefix) - 1) != 0)
 		return val;
-	return &val[sizeof(prefix)];
+	return &val[sizeof(prefix) - 1];
 }
 
 const char* rdpgfx_caps_flags_str(UINT32 flags, char* buffer, size_t length)
