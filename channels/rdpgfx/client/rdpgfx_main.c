@@ -38,6 +38,7 @@
 
 #include <freerdp/addin.h>
 #include <freerdp/channels/log.h>
+#include <freerdp/codec/h264.h>
 
 #include "rdpgfx_common.h"
 #include "rdpgfx_codec.h"
@@ -308,6 +309,73 @@ static RDPGFX_CAPSET* nextCapset(RDPGFX_CAPS_ADVERTISE_PDU* pdu, size_t count)
 	return &pdu->capsSets[pdu->capsSetCount++];
 }
 
+#if defined(WITH_GFX_AZURE)
+WINPR_ATTR_NODISCARD
+static BOOL rdpgfx_is_hevc_confirmed(const RDPGFX_CAPSET* caps)
+{
+	WINPR_ASSERT(caps);
+	switch (caps->version)
+	{
+		case RDPGFX_CAPVERSION_112:
+		case RDPGFX_CAPVERSION_113:
+		case RDPGFX_CAPVERSION_115:
+			return (caps->flags & RDPGFX_CAPS_FLAG_HEVC_ENABLE) != 0;
+		default:
+			return FALSE;
+	}
+}
+
+/* Only offer HEVC if it can be decoded: a server confirming it sends HEVC420 frames.
+ * Decoders depend on the system (MediaFoundation needs the HEVC Video Extensions). */
+WINPR_ATTR_NODISCARD
+static BOOL rdpgfx_hevc_supported(RDPGFX_PLUGIN* gfx)
+{
+	WINPR_ASSERT(gfx);
+
+	if (!freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxCodecHEVC))
+		return FALSE;
+
+	BOOL rc = FALSE;
+#if defined(WITH_GFX_H264)
+	H264_CONTEXT* h264 = h264_context_new(FALSE);
+	rc = h264 && h264_context_set_option(h264, H264_CONTEXT_OPTION_HEVC, TRUE);
+	h264_context_free(h264);
+#endif
+	if (!rc)
+		WLog_Print(gfx->base.log, WLOG_WARN,
+		           "HEVC requested, but no HEVC decoder is available: not advertising it");
+	return rc;
+}
+
+WINPR_ATTR_NODISCARD
+static BOOL rdpgfx_is_hevc444_confirmed(const RDPGFX_CAPSET* caps)
+{
+	WINPR_ASSERT(caps);
+	return (caps->version == RDPGFX_CAPVERSION_115) && rdpgfx_is_hevc_confirmed(caps) &&
+	       ((caps->flags & RDPGFX_CAPS_FLAG_HEVC444_ENABLE) != 0);
+}
+
+/* A server confirming HEVC 4:4:4 may send HEVC444 frames, which need a decoder with the HEVC
+ * Range Extensions (FFmpeg), the hardware decoders used for HEVC420 often lack them. */
+WINPR_ATTR_NODISCARD
+static BOOL rdpgfx_hevc444_supported(RDPGFX_PLUGIN* gfx)
+{
+	WINPR_ASSERT(gfx);
+
+	BOOL rc = FALSE;
+#if defined(WITH_GFX_H264)
+	H264_CONTEXT* h264 = h264_context_new(FALSE);
+	rc = h264 && h264_context_set_option(h264, H264_CONTEXT_OPTION_HEVC, TRUE) &&
+	     h264_context_set_option(h264, H264_CONTEXT_OPTION_HEVC444, TRUE);
+	h264_context_free(h264);
+#endif
+	if (!rc)
+		WLog_Print(gfx->base.log, WLOG_DEBUG,
+		           "no HEVC 4:4:4 decoder available: offering HEVC 4:2:0 only");
+	return rc;
+}
+#endif
+
 /**
  * Function description
  *
@@ -331,6 +399,10 @@ static UINT rdpgfx_send_supported_caps(GENERIC_CHANNEL_CALLBACK* callback)
 		return ERROR_BAD_CONFIGURATION;
 
 	RDPGFX_CAPS_ADVERTISE_PDU pdu = { .capsSetCount = 0, .capsSets = capsSets };
+#if defined(WITH_GFX_AZURE)
+	const BOOL hevc = rdpgfx_hevc_supported(gfx);
+	const BOOL hevc444 = hevc && rdpgfx_hevc444_supported(gfx);
+#endif
 
 	if (!rdpgfx_is_capability_filtered(gfx, RDPGFX_CAPVERSION_8))
 	{
@@ -513,10 +585,35 @@ static UINT rdpgfx_send_supported_caps(GENERIC_CHANNEL_CALLBACK* callback)
 #if !defined(WITH_CAIRO) && !defined(WITH_SWSCALE)
 			capsSet->flags |= RDPGFX_CAPS_FLAG_SCALEDMAP_DISABLE;
 #endif
+			/* HEVC_ENABLE is valid from RDPGFX_CAPVERSION_112 on. Servers that know
+			 * RDPGFX_CAPVERSION_115 select it, so offer HEVC in every set. */
+			if ((cap != RDPGFX_CAPVERSION_111) && hevc)
+				capsSet->flags |= RDPGFX_CAPS_FLAG_HEVC_ENABLE;
+			/* HEVC 4:4:4 is only valid in RDPGFX_CAPVERSION_115 */
+			if ((cap == RDPGFX_CAPVERSION_115) && hevc444)
+				capsSet->flags |= RDPGFX_CAPS_FLAG_HEVC444_ENABLE;
 			}
 		}
 #endif
 	}
+#if defined(WITH_GFX_AZURE)
+	/* AVC420 only: the 10.x and later sets are not sent, as AVC enabled there includes AVC444.
+	 * HEVC needs RDPGFX_CAPVERSION_112, offer it with AVC disabled. */
+	else if (hevc && !rdpgfx_is_capability_filtered(gfx, RDPGFX_CAPVERSION_112))
+	{
+		RDPGFX_CAPSET* capsSet = nextCapset(&pdu, ARRAYSIZE(capsSets));
+		if (!capsSet)
+			return ERROR_BAD_CONFIGURATION;
+		capsSet->version = RDPGFX_CAPVERSION_112;
+		capsSet->length = 0x4;
+		capsSet->flags = RDPGFX_CAPS_FLAG_AVC_DISABLED | RDPGFX_CAPS_FLAG_HEVC_ENABLE;
+		if (freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxSmallCache))
+			capsSet->flags |= RDPGFX_CAPS_FLAG_SMALL_CACHE;
+#if !defined(WITH_CAIRO) && !defined(WITH_SWSCALE)
+		capsSet->flags |= RDPGFX_CAPS_FLAG_SCALEDMAP_DISABLE;
+#endif
+	}
+#endif
 
 #if defined(WITH_GFX_AV1)
 	if (freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxCodecAV1))
@@ -572,6 +669,18 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	WLog_Print(gfx->base.log, WLOG_DEBUG,
 	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32 "",
 	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags);
+#if defined(WITH_GFX_AZURE)
+	if (freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxCodecHEVC))
+	{
+		char buffer[256] = WINPR_C_ARRAY_INIT;
+		WLog_Print(gfx->base.log, WLOG_INFO, "HEVC %s by server, confirmed %s flags %s",
+		           rdpgfx_is_hevc444_confirmed(&capsSet)
+		               ? "4:4:4 confirmed"
+		               : (rdpgfx_is_hevc_confirmed(&capsSet) ? "confirmed" : "not confirmed"),
+		           rdpgfx_caps_version_str(capsSet.version),
+		           rdpgfx_caps_flags_str(capsSet.flags, buffer, sizeof(buffer)));
+	}
+#endif
 
 	if (!context)
 		return ERROR_BAD_CONFIGURATION;
@@ -1545,6 +1654,34 @@ static BOOL checkSurfaceCommand(const RDPGFX_PLUGIN* gfx, const RDPGFX_SURFACE_C
 				           cmd->codecId, rdpgfx_caps_version_str(RDPGFX_CAPVERSION_FRDP_1),
 				           rdpgfx_caps_version_str(gfx->ConnectionCaps.version),
 				           gfx->ConnectionCaps.version);
+				return FALSE;
+			}
+			return TRUE;
+#endif
+#if defined(WITH_GFX_AZURE)
+		case RDPGFX_CODECID_HEVC420:
+			if (!rdpgfx_is_hevc_confirmed(&gfx->ConnectionCaps))
+			{
+				WLog_Print(gfx->base.log, WLOG_ERROR,
+				           "RDPGFX_SURFACE_COMMAND::codecId %" PRIu32
+				           " only supported with %s confirmed but connection uses %s [0x%08" PRIx32
+				           "] flags 0x%08" PRIx32,
+				           cmd->codecId, rdpgfx_caps_flag_str(RDPGFX_CAPS_FLAG_HEVC_ENABLE),
+				           rdpgfx_caps_version_str(gfx->ConnectionCaps.version),
+				           gfx->ConnectionCaps.version, gfx->ConnectionCaps.flags);
+				return FALSE;
+			}
+			return TRUE;
+		case RDPGFX_CODECID_HEVC444:
+			if (!rdpgfx_is_hevc444_confirmed(&gfx->ConnectionCaps))
+			{
+				WLog_Print(gfx->base.log, WLOG_ERROR,
+				           "RDPGFX_SURFACE_COMMAND::codecId %" PRIu32
+				           " only supported with %s confirmed but connection uses %s [0x%08" PRIx32
+				           "] flags 0x%08" PRIx32,
+				           cmd->codecId, rdpgfx_caps_flag_str(RDPGFX_CAPS_FLAG_HEVC444_ENABLE),
+				           rdpgfx_caps_version_str(gfx->ConnectionCaps.version),
+				           gfx->ConnectionCaps.version, gfx->ConnectionCaps.flags);
 				return FALSE;
 			}
 			return TRUE;
