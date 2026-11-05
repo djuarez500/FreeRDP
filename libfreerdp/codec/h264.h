@@ -48,6 +48,8 @@ extern "C"
 		pfnH264SubsystemUninit Uninit;
 		WINPR_ATTR_NODISCARD pfnH264SubsystemDecompress Decompress;
 		WINPR_ATTR_NODISCARD pfnH264SubsystemCompress Compress;
+		BOOL SupportsHEVC;    /**< can decode H.265/HEVC, see H264_CONTEXT_OPTION_HEVC */
+		BOOL SupportsHEVC444; /**< can decode HEVC 4:4:4, see H264_CONTEXT_OPTION_HEVC444 */
 	};
 
 	struct S_H264_CONTEXT
@@ -88,6 +90,11 @@ extern "C"
 
 		UINT32 YUVWidth;
 		UINT32 YUVHeight;
+
+		BOOL hevc;    /**< decode H.265/HEVC instead of H.264 */
+		BOOL hevc444; /**< the HEVC stream is 4:4:4, needs a subsystem with SupportsHEVC444 */
+		BOOL yuv444;  /**< set by the subsystem: pYUVData holds a full resolution 4:4:4 picture
+		               *   (Y, Cb, Cr) instead of 4:2:0 */
 	};
 
 	WINPR_ATTR_NODISCARD
