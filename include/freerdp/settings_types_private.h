@@ -790,7 +790,8 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 GfxCodecAV1Profile); /** 3852
 		                                                     * @since version 3.25.0
 		                                                     */
-	UINT64 padding3904[3904 - 3853];                        /* 3853 */
+	SETTINGS_DEPRECATED(ALIGN64 BOOL GfxCodecHEVC);         /* 3853 */
+	UINT64 padding3904[3904 - 3854];                        /* 3854 */
 
 	/**
 	 * Caches
