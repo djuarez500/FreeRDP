@@ -2657,6 +2657,17 @@ int parse_gfx_options(rdpSettings* settings, const COMMAND_LINE_ARGUMENT_A* arg)
 					}
 				}
 #endif
+#if defined(WITH_GFX_AZURE)
+				else if (option_starts_with("HEVC", val))
+				{
+					const PARSE_ON_OFF_RESULT bval = parse_on_off_option(val);
+					if (bval == PARSE_FAIL)
+						rc = COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
+					else if (!freerdp_settings_set_bool(settings, FreeRDP_GfxCodecHEVC,
+					                                    bval != PARSE_OFF))
+						rc = COMMAND_LINE_ERROR;
+				}
+#endif
 				else
 					rc = COMMAND_LINE_ERROR;
 			}
