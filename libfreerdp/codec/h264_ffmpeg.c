@@ -404,7 +404,7 @@ static enum AVPixelFormat get_hwctx_image_format(H264_CONTEXT_LIBAVCODEC* sys, w
 			return AV_PIX_FMT_D3D12;
 #endif
 		case AV_HWDEVICE_TYPE_D3D11VA:
-			return AV_PIX_FMT_D3D11VA_VLD;
+			return AV_PIX_FMT_D3D11;
 		case AV_HWDEVICE_TYPE_DRM:
 			return AV_PIX_FMT_DRM_PRIME;
 		case AV_HWDEVICE_TYPE_OPENCL:
@@ -1440,7 +1440,7 @@ static BOOL libavcodec_init(H264_CONTEXT* h264)
 #endif
 		sys->codecDecoderContext->opaque = (void*)h264;
 
-	fail_hwdevice_create:
+		fail_hwdevice_create:;
 	}
 #endif
 
