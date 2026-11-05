@@ -61,13 +61,15 @@ function h264_wc_copy(frame, t)
 	});
 }
 
-/* Opens a decoder slot once the browser has confirmed it can decode H.264 at all. */
-function h264_wc_js_open(ctx, handle)
+/* Opens a decoder slot once the browser has confirmed it can decode the codec of the probe
+ * string at all (H.264 or HEVC, cached per codec string). */
+function h264_wc_js_open(ctx, handle, probe)
 {
 	const reg = (Module.freerdpH264 =
-	                 Module.freerdpH264 || { next: 1, decoders: new Map(), supported: null });
+	                 Module.freerdpH264 || { next: 1, decoders: new Map(), supported: new Map() });
+	const codec = UTF8ToString(probe);
 	const finish = (ok) => {
-		reg.supported = ok;
+		reg.supported.set(codec, ok);
 		HEAP32[handle >>> 2] = 0;
 		if (ok)
 		{
@@ -77,13 +79,12 @@ function h264_wc_js_open(ctx, handle)
 		}
 		_freerdp_h264_wc_finish(ctx);
 	};
-	if (reg.supported !== null)
-		return finish(reg.supported);
+	if (reg.supported.has(codec))
+		return finish(reg.supported.get(codec));
 	if (typeof VideoDecoder !== "function" || typeof EncodedVideoChunk !== "function")
 		return finish(false);
-	/* Constrained Baseline 3.1: any H.264 capable browser decodes it */
-	VideoDecoder.isConfigSupported({ codec: "avc1.42e01f" })
-	    .then((s) => finish(!!s.supported), () => finish(false));
+	VideoDecoder.isConfigSupported({ codec }).then((s) => finish(!!s.supported),
+	                                               () => finish(false));
 }
 
 function h264_wc_js_close(handle)
@@ -253,8 +254,8 @@ function h264_wc_js_copy(ctx, handle, y, u, v, ys, cs, rc)
 addToLibrary({
 	$h264_wc_copy: h264_wc_copy,
 	h264_wc_js_open,
-	h264_wc_js_open__sig: "vpp",
-	h264_wc_js_open__deps: ["freerdp_h264_wc_finish"],
+	h264_wc_js_open__sig: "vppp",
+	h264_wc_js_open__deps: ["$UTF8ToString", "freerdp_h264_wc_finish"],
 	h264_wc_js_close,
 	h264_wc_js_close__sig: "vi",
 	h264_wc_js_decode,
