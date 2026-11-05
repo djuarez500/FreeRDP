@@ -54,6 +54,11 @@ extern "C"
 #else
 	    void* reservedAV1;
 #endif
+#if defined(WITH_GFX_AZURE)
+		H264_CONTEXT* hevc; /** HEVC420 decoder context */
+#else
+	    void* reservedHEVC;
+#endif
 	};
 	typedef struct gdi_gfx_surface gdiGfxSurface;
 

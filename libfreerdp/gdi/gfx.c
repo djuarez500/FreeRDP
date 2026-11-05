@@ -695,11 +695,13 @@ fail:
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-WINPR_ATTR_NODISCARD
-static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
-                                      const RDPGFX_SURFACE_COMMAND* cmd)
-{
 #ifdef WITH_GFX_H264
+/* AVC420, HEVC420 and HEVC444 share the bitstream layout (metablock + Annex B), only the codec
+ * differs */
+WINPR_ATTR_NODISCARD
+static UINT gdi_SurfaceCommand_AVC420_int(rdpGdi* gdi, RdpgfxClientContext* context,
+                                          const RDPGFX_SURFACE_COMMAND* cmd, BOOL hevc)
+{
 	INT32 rc = 0;
 	UINT status = CHANNEL_RC_OK;
 	gdiGfxSurface* surface = nullptr;
@@ -719,26 +721,65 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		return ERROR_NOT_FOUND;
 	}
 
-	if (!surface->h264)
-	{
-		surface->h264 = h264_context_new(FALSE);
+	H264_CONTEXT** ph264 = &surface->h264;
+	BOOL hevc444 = FALSE;
+#if defined(WITH_GFX_AZURE)
+	if (hevc)
+		ph264 = &surface->hevc;
+	hevc444 = hevc && (cmd->codecId == RDPGFX_CODECID_HEVC444);
+#else
+	WINPR_ASSERT(!hevc);
+#endif
 
-		if (!surface->h264)
+	if (!*ph264)
+	{
+		*ph264 = h264_context_new(FALSE);
+
+		if (!*ph264)
 		{
 			WLog_ERR(TAG, "unable to create h264 context");
 			return ERROR_NOT_ENOUGH_MEMORY;
 		}
 
-		if (!h264_context_set_option(surface->h264, H264_CONTEXT_OPTION_HW_ACCEL,
+		if (hevc && !h264_context_set_option(*ph264, H264_CONTEXT_OPTION_HEVC, TRUE))
+		{
+			WLog_ERR(TAG, "no HEVC decoder available");
+			h264_context_free(*ph264);
+			*ph264 = nullptr;
+			return ERROR_NOT_SUPPORTED;
+		}
+
+		if (hevc444 && !h264_context_set_option(*ph264, H264_CONTEXT_OPTION_HEVC444, TRUE))
+		{
+			WLog_ERR(TAG, "no HEVC 4:4:4 decoder available");
+			h264_context_free(*ph264);
+			*ph264 = nullptr;
+			return ERROR_NOT_SUPPORTED;
+		}
+
+		if (!h264_context_set_option(*ph264, H264_CONTEXT_OPTION_HW_ACCEL,
 		                             (UINT32)freerdp_settings_get_bool(gdi->context->settings,
 		                                                               FreeRDP_SoftwareGdi) == 0))
 			return ERROR_INTERNAL_ERROR;
 
-		if (!h264_context_reset(surface->h264, surface->width, surface->height))
+		if (!h264_context_reset(*ph264, surface->width, surface->height))
+			return ERROR_INTERNAL_ERROR;
+	}
+	else if (hevc &&
+	         ((h264_context_get_option(*ph264, H264_CONTEXT_OPTION_HEVC444) != 0) != hevc444))
+	{
+		/* the server switched between HEVC 4:2:0 and 4:4:4, which may need another decoder;
+		 * a switch starts with a key frame */
+		if (!h264_context_set_option(*ph264, H264_CONTEXT_OPTION_HEVC444, hevc444))
+		{
+			WLog_ERR(TAG, "no HEVC %s decoder available", hevc444 ? "4:4:4" : "4:2:0");
+			return ERROR_NOT_SUPPORTED;
+		}
+		if (!h264_context_reset(*ph264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
 
-	if (!surface->h264)
+	if (!*ph264)
 		return ERROR_NOT_SUPPORTED;
 
 	if (!is_within_surface(surface, cmd))
@@ -750,7 +791,7 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		return ERROR_INTERNAL_ERROR;
 
 	meta = &(bs->meta);
-	rc = avc420_decompress(surface->h264, bs->data, bs->length, surface->data, surface->format,
+	rc = avc420_decompress(*ph264, bs->data, bs->length, surface->data, surface->format,
 	                       surface->scanline, surface->width, surface->height, meta->regionRects,
 	                       meta->numRegionRects);
 
@@ -777,10 +818,48 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 
 fail:
 	return status;
+}
+#endif
+
+/**
+ * Function description
+ *
+ * @return 0 on success, otherwise a Win32 error code
+ */
+WINPR_ATTR_NODISCARD
+static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
+                                      const RDPGFX_SURFACE_COMMAND* cmd)
+{
+#ifdef WITH_GFX_H264
+	return gdi_SurfaceCommand_AVC420_int(gdi, context, cmd, FALSE);
 #else
+	WINPR_UNUSED(gdi);
+	WINPR_UNUSED(context);
+	WINPR_UNUSED(cmd);
 	return ERROR_NOT_SUPPORTED;
 #endif
 }
+
+#if defined(WITH_GFX_AZURE)
+/**
+ * Function description
+ *
+ * @return 0 on success, otherwise a Win32 error code
+ */
+WINPR_ATTR_NODISCARD
+static UINT gdi_SurfaceCommand_HEVC420(rdpGdi* gdi, RdpgfxClientContext* context,
+                                       const RDPGFX_SURFACE_COMMAND* cmd)
+{
+#ifdef WITH_GFX_H264
+	return gdi_SurfaceCommand_AVC420_int(gdi, context, cmd, TRUE);
+#else
+	WINPR_UNUSED(gdi);
+	WINPR_UNUSED(context);
+	WINPR_UNUSED(cmd);
+	return ERROR_NOT_SUPPORTED;
+#endif
+}
+#endif
 
 /**
  * Function description
@@ -1241,6 +1320,13 @@ static UINT gdi_SurfaceCommand(RdpgfxClientContext* context, const RDPGFX_SURFAC
 			status = gdi_SurfaceCommand_AVC444(gdi, context, cmd);
 			break;
 
+#if defined(WITH_GFX_AZURE)
+		case RDPGFX_CODECID_HEVC420:
+		case RDPGFX_CODECID_HEVC444:
+			status = gdi_SurfaceCommand_HEVC420(gdi, context, cmd);
+			break;
+#endif
+
 		case RDPGFX_CODECID_ALPHA:
 			status = gdi_SurfaceCommand_Alpha(gdi, context, cmd);
 			break;
@@ -1395,6 +1481,9 @@ static UINT gdi_DeleteSurface(RdpgfxClientContext* context,
 
 #ifdef WITH_GFX_H264
 		h264_context_free(surface->h264);
+#if defined(WITH_GFX_AZURE)
+		h264_context_free(surface->hevc);
+#endif
 #endif
 #if defined(WITH_GFX_AV1)
 		freerdp_av1_context_free(surface->av1);
