@@ -20,6 +20,7 @@
 
 #include <winpr/winpr.h>
 #include <freerdp/utils/gfx.h>
+#include <freerdp/channels/rdpgfx.h>
 
 static bool test(uint32_t flags, size_t bufferlen)
 {
@@ -45,8 +46,24 @@ static bool test(uint32_t flags, size_t bufferlen)
 	return true;
 }
 
+static bool test_names(void)
+{
+	char buffer[128] = WINPR_C_ARRAY_INIT;
+	const char* val = rdpgfx_caps_flags_str(
+	    RDPGFX_CAPS_FLAG_SMALL_CACHE | RDPGFX_CAPS_FLAG_SCALEDMAP_DISABLE, buffer, sizeof(buffer));
+	const char expect[] = "{SMALL_CACHE|SCALEDMAP_DISABLE}[0x00000082]";
+	printf("%s\n", buffer);
+	if (!val || (strcmp(buffer, expect) != 0))
+		return false;
+
+	const char* flag = rdpgfx_caps_flag_str(RDPGFX_CAPS_FLAG_THINCLIENT);
+	return flag && (strcmp(flag, "THINCLIENT") == 0);
+}
+
 int TestGdiGfx(WINPR_ATTR_UNUSED int argc, WINPR_ATTR_UNUSED char* argv[])
 {
+	if (!test_names())
+		return -1;
 	if (!test(0, 0))
 		return -1;
 	if (!test(0, 128))
