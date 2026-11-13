@@ -152,7 +152,8 @@ FREERDP_HEVC_CONTEXT* freerdp_hevc_context_new(BOOL Compressor)
 		return nullptr;
 	ctx->Compressor = Compressor;
 	ctx->log = WLog_Get(TAG);
-	ctx->context = h264_context_new_ex(Compressor, TRUE, TRUE);
+	/* a decoder starts with 4:2:0, FREERDP_HEVC_CONTEXT_OPTION_PROFILE selects 4:4:4 */
+	ctx->context = h264_context_new_ex(Compressor, TRUE, Compressor);
 	if (!ctx->context)
 		goto fail;
 	return ctx;
