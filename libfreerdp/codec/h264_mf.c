@@ -1451,6 +1451,14 @@ static BOOL mf_init(H264_CONTEXT* h264)
 
 	WINPR_ASSERT(h264);
 
+	/* only IYUV or NV12 (4:2:0) output is taken from the decoder here, leave HEVC 4:4:4 to
+	 * another subsystem */
+	if (h264->hevc && h264->hevc444)
+	{
+		WLog_Print(h264->log, WLOG_DEBUG, "Media Foundation does not decode HEVC 4:4:4");
+		return FALSE;
+	}
+
 	H264_CONTEXT_MF* sys = (H264_CONTEXT_MF*)calloc(1, sizeof(H264_CONTEXT_MF));
 
 	if (!sys)
