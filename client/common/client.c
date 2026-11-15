@@ -60,6 +60,10 @@
 #include <freerdp/channels/video.h>
 #endif
 
+#if defined(CHANNEL_MONITORCFG_CLIENT)
+#include <freerdp/client/monitorcfg.h>
+#endif
+
 #if defined(CHANNEL_RDPGFX_CLIENT)
 #include <freerdp/client/rdpgfx.h>
 #include <freerdp/channels/rdpgfx.h>
@@ -1962,6 +1966,23 @@ static void client_encomsp_uninit(rdpClientContext* cctx, EncomspClientContext* 
 }
 #endif
 
+UINT freerdp_client_send_monitor_layout(rdpClientContext* cctx, UINT32 NumMonitors,
+                                        const DISPLAY_CONTROL_MONITOR_LAYOUT* Monitors)
+{
+#if defined(CHANNEL_MONITORCFG_CLIENT)
+	if (cctx && cctx->monitorcfg)
+	{
+		MonitorCfgClientContext* mc = (MonitorCfgClientContext*)cctx->monitorcfg;
+		return IFCALLRESULT(CHANNEL_RC_NOT_OPEN, mc->SendMonitorLayout, mc, NumMonitors, Monitors);
+	}
+#else
+	WINPR_UNUSED(cctx);
+	WINPR_UNUSED(NumMonitors);
+	WINPR_UNUSED(Monitors);
+#endif
+	return CHANNEL_RC_NOT_OPEN;
+}
+
 void freerdp_client_OnChannelConnectedEventHandler(void* context,
                                                    const ChannelConnectedEventArgs* e)
 {
@@ -1990,6 +2011,12 @@ void freerdp_client_OnChannelConnectedEventHandler(void* context,
 		if (!requireRdpClientContext(context))
 			return;
 		cctx->rdpei = (RdpeiClientContext*)e->pInterface;
+	}
+#endif
+#if defined(CHANNEL_MONITORCFG_CLIENT)
+	else if (strcmp(e->name, MONITORCFG_DVC_CHANNEL_NAME) == 0)
+	{
+		cctx->monitorcfg = e->pInterface;
 	}
 #endif
 #if defined(CHANNEL_RDPGFX_CLIENT)
@@ -2049,6 +2076,12 @@ void freerdp_client_OnChannelDisconnectedEventHandler(void* context,
 		if (!requireRdpClientContext(context))
 			return;
 		cctx->rdpei = nullptr;
+	}
+#endif
+#if defined(CHANNEL_MONITORCFG_CLIENT)
+	else if (strcmp(e->name, MONITORCFG_DVC_CHANNEL_NAME) == 0)
+	{
+		cctx->monitorcfg = nullptr;
 	}
 #endif
 #if defined(CHANNEL_RDPGFX_CLIENT)

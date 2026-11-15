@@ -48,6 +48,7 @@
 #include <freerdp/channels/remdesk.h>
 #include <freerdp/channels/rdpsnd.h>
 #include <freerdp/channels/disp.h>
+#include <freerdp/channels/monitorcfg.h>
 #include <freerdp/crypto/crypto.h>
 #include <freerdp/locale/keyboard.h>
 #include <freerdp/utils/passphrase.h>
@@ -6521,6 +6522,13 @@ BOOL freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 #endif
 #ifdef CHANNEL_DISP_CLIENT
 		{ FreeRDP_SupportDisplayControl, DISP_CHANNEL_NAME, nullptr },
+#endif
+#ifdef CHANNEL_MONITORCFG_CLIENT
+		/* only opened by servers that lay out the desktop from it */
+		{ FreeRDP_SupportGraphicsPipeline, MONITORCFG_CHANNEL_NAME, nullptr },
+#endif
+#ifdef CHANNEL_MOUSECURSOR_CLIENT
+		{ FreeRDP_SupportGraphicsPipeline, "mousecursor", nullptr },
 #endif
 #ifdef CHANNEL_GEOMETRY_CLIENT
 		{ FreeRDP_SupportGeometryTracking, GEOMETRY_CHANNEL_NAME, nullptr },

@@ -29,6 +29,7 @@
 #include <freerdp/types.h>
 #include <freerdp/event.h>
 #include <freerdp/freerdp.h>
+#include <freerdp/channels/disp.h>
 
 #if defined(CHANNEL_AINPUT_CLIENT)
 #include <freerdp/client/ainput.h>
@@ -158,8 +159,22 @@ extern "C"
 		ALIGN64 pPostDisconnect PostDisconnect;     /**< (offset 20) @since version 3.33.0 */
 		ALIGN64 pPostDisconnect PostFinalDisconnect; /**< (offset 21) @since version 3.33.0 */
 		ALIGN64 HANDLE pipethread;                   /**< (offset 22) @since version 3.33.0 */
-		UINT64 reserved[129 - 23];                   /**< (offset 23) */
+		ALIGN64 void* monitorcfg; /**< (offset 23) MonitorCfgClientContext* while connected */
+		UINT64 reserved[129 - 24]; /**< (offset 24) */
 	};
+
+	/** @brief Send a monitor layout over the monitor configuration channel
+	 *
+	 *  A server that opens that channel lays out the desktop from it and expects window resizes
+	 *  there instead of over Display Control.
+	 *
+	 *  @return CHANNEL_RC_OK when the layout was sent (or will be, after the channel's caps
+	 *  exchange), CHANNEL_RC_NOT_OPEN when the server does not use the channel; the caller then
+	 *  uses Display Control.
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_API UINT freerdp_client_send_monitor_layout(
+	    rdpClientContext* cctx, UINT32 NumMonitors, const DISPLAY_CONTROL_MONITOR_LAYOUT* Monitors);
 
 	typedef BOOL (*window_events_fkt_t)(freerdp* instance);
 
