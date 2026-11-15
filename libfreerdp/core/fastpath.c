@@ -393,16 +393,11 @@ static int fastpath_recv_update(rdpFastPath* fastpath, BYTE updateCode, wStream*
 	rdpContext* context = update->context;
 	WINPR_ASSERT(context);
 
-	rdpPointerUpdate* pointer = update->pointer;
-	WINPR_ASSERT(pointer);
-
 #ifdef WITH_DEBUG_RDP
 	DEBUG_RDP(fastpath->rdp, "recv Fast-Path %s Update (0x%02" PRIX8 "), length:%" PRIuz "",
 	          fastpath_update_to_string(updateCode), updateCode, Stream_GetRemainingLength(s));
 #endif
 
-	const BOOL defaultReturn =
-	    freerdp_settings_get_bool(context->settings, FreeRDP_DeactivateClientDecoding);
 	switch (updateCode)
 	{
 		case FASTPATH_UPDATETYPE_ORDERS:
@@ -432,88 +427,14 @@ static int fastpath_recv_update(rdpFastPath* fastpath, BYTE updateCode, wStream*
 			break;
 
 		case FASTPATH_UPDATETYPE_PTR_NULL:
-		{
-			POINTER_SYSTEM_UPDATE pointer_system = WINPR_C_ARRAY_INIT;
-			pointer_system.type = SYSPTR_NULL;
-			up->stats.base[RDP_STATS_POINTER_SYSTEM]++;
-			rc = IFCALLRESULT(defaultReturn, pointer->PointerSystem, context, &pointer_system);
-		}
-		break;
-
 		case FASTPATH_UPDATETYPE_PTR_DEFAULT:
-		{
-			POINTER_SYSTEM_UPDATE pointer_system = WINPR_C_ARRAY_INIT;
-			pointer_system.type = SYSPTR_DEFAULT;
-			up->stats.base[RDP_STATS_POINTER_DEFAULT]++;
-			rc = IFCALLRESULT(defaultReturn, pointer->PointerSystem, context, &pointer_system);
-		}
-		break;
-
 		case FASTPATH_UPDATETYPE_PTR_POSITION:
-		{
-			POINTER_POSITION_UPDATE* pointer_position = update_read_pointer_position(update, s);
-
-			if (pointer_position)
-			{
-				up->stats.base[RDP_STATS_POINTER_POSITION]++;
-				rc = IFCALLRESULT(defaultReturn, pointer->PointerPosition, context,
-				                  pointer_position);
-				free_pointer_position_update(context, pointer_position);
-			}
-		}
-		break;
-
 		case FASTPATH_UPDATETYPE_COLOR:
-		{
-			POINTER_COLOR_UPDATE* pointer_color = update_read_pointer_color(update, s, 24);
-
-			if (pointer_color)
-			{
-				up->stats.base[RDP_STATS_POINTER_COLOR]++;
-				rc = IFCALLRESULT(defaultReturn, pointer->PointerColor, context, pointer_color);
-				free_pointer_color_update(context, pointer_color);
-			}
-		}
-		break;
-
 		case FASTPATH_UPDATETYPE_CACHED:
-		{
-			POINTER_CACHED_UPDATE* pointer_cached = update_read_pointer_cached(update, s);
-
-			if (pointer_cached)
-			{
-				up->stats.base[RDP_STATS_POINTER_CACHED]++;
-				rc = IFCALLRESULT(defaultReturn, pointer->PointerCached, context, pointer_cached);
-				free_pointer_cached_update(context, pointer_cached);
-			}
-		}
-		break;
-
 		case FASTPATH_UPDATETYPE_POINTER:
-		{
-			POINTER_NEW_UPDATE* pointer_new = update_read_pointer_new(update, s);
-
-			if (pointer_new)
-			{
-				up->stats.base[RDP_STATS_POINTER_NEW]++;
-				rc = IFCALLRESULT(defaultReturn, pointer->PointerNew, context, pointer_new);
-				free_pointer_new_update(context, pointer_new);
-			}
-		}
-		break;
-
 		case FASTPATH_UPDATETYPE_LARGE_POINTER:
-		{
-			POINTER_LARGE_UPDATE* pointer_large = update_read_pointer_large(update, s);
-
-			if (pointer_large)
-			{
-				up->stats.base[RDP_STATS_POINTER_LARGE]++;
-				rc = IFCALLRESULT(defaultReturn, pointer->PointerLarge, context, pointer_large);
-				free_pointer_large_update(context, pointer_large);
-			}
-		}
-		break;
+			rc = update_recv_fastpath_pointer(update, updateCode, s);
+			break;
 		default:
 			break;
 	}

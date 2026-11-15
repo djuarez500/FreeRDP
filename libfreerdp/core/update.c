@@ -890,6 +890,126 @@ fail:
 	return nullptr;
 }
 
+/* Fast-path pointer update codes (MS-RDPBCGR 2.2.9.1.2.1) */
+#define PTR_FP_NULL 0x5
+#define PTR_FP_DEFAULT 0x6
+#define PTR_FP_POSITION 0x8
+#define PTR_FP_COLOR 0x9
+#define PTR_FP_CACHED 0xA
+#define PTR_FP_NEW 0xB
+#define PTR_FP_LARGE 0xC
+
+BOOL update_recv_fastpath_pointer(rdpUpdate* update, BYTE updateCode, wStream* s)
+{
+	BOOL rc = FALSE;
+
+	WINPR_ASSERT(update);
+	WINPR_ASSERT(s);
+
+	rdpContext* context = update->context;
+	WINPR_ASSERT(context);
+	rdpPointerUpdate* pointer = update->pointer;
+	WINPR_ASSERT(pointer);
+	rdp_update_internal* up = update_cast(update);
+
+	const BOOL defaultReturn =
+	    freerdp_settings_get_bool(context->settings, FreeRDP_DeactivateClientDecoding);
+	switch (updateCode)
+	{
+		case PTR_FP_NULL:
+		case PTR_FP_DEFAULT:
+		{
+			POINTER_SYSTEM_UPDATE pointer_system = WINPR_C_ARRAY_INIT;
+			pointer_system.type = (updateCode == PTR_FP_NULL) ? SYSPTR_NULL : SYSPTR_DEFAULT;
+			up->stats.base[(updateCode == PTR_FP_NULL) ? RDP_STATS_POINTER_SYSTEM
+			                                           : RDP_STATS_POINTER_DEFAULT]++;
+			rc = IFCALLRESULT(defaultReturn, pointer->PointerSystem, context, &pointer_system);
+		}
+		break;
+
+		case PTR_FP_POSITION:
+		{
+			POINTER_POSITION_UPDATE* pointer_position = update_read_pointer_position(update, s);
+
+			if (pointer_position)
+			{
+				up->stats.base[RDP_STATS_POINTER_POSITION]++;
+				rc = IFCALLRESULT(defaultReturn, pointer->PointerPosition, context,
+				                  pointer_position);
+				free_pointer_position_update(context, pointer_position);
+			}
+		}
+		break;
+
+		case PTR_FP_COLOR:
+		{
+			POINTER_COLOR_UPDATE* pointer_color = update_read_pointer_color(update, s, 24);
+
+			if (pointer_color)
+			{
+				up->stats.base[RDP_STATS_POINTER_COLOR]++;
+				rc = IFCALLRESULT(defaultReturn, pointer->PointerColor, context, pointer_color);
+				free_pointer_color_update(context, pointer_color);
+			}
+		}
+		break;
+
+		case PTR_FP_CACHED:
+		{
+			POINTER_CACHED_UPDATE* pointer_cached = update_read_pointer_cached(update, s);
+
+			if (pointer_cached)
+			{
+				up->stats.base[RDP_STATS_POINTER_CACHED]++;
+				rc = IFCALLRESULT(defaultReturn, pointer->PointerCached, context, pointer_cached);
+				free_pointer_cached_update(context, pointer_cached);
+			}
+		}
+		break;
+
+		case PTR_FP_NEW:
+		{
+			POINTER_NEW_UPDATE* pointer_new = update_read_pointer_new(update, s);
+
+			if (pointer_new)
+			{
+				up->stats.base[RDP_STATS_POINTER_NEW]++;
+				rc = IFCALLRESULT(defaultReturn, pointer->PointerNew, context, pointer_new);
+				free_pointer_new_update(context, pointer_new);
+			}
+		}
+		break;
+
+		case PTR_FP_LARGE:
+		{
+			POINTER_LARGE_UPDATE* pointer_large = update_read_pointer_large(update, s);
+
+			if (pointer_large)
+			{
+				up->stats.base[RDP_STATS_POINTER_LARGE]++;
+				rc = IFCALLRESULT(defaultReturn, pointer->PointerLarge, context, pointer_large);
+				free_pointer_large_update(context, pointer_large);
+			}
+		}
+		break;
+
+		default:
+			WLog_WARN(TAG, "unknown fast-path pointer update code 0x%02" PRIx8, updateCode);
+			break;
+	}
+	return rc;
+}
+
+BOOL freerdp_update_recv_fastpath_pointer(rdpContext* context, BYTE updateCode, wStream* s)
+{
+	if (!context || !context->update || !context->update->pointer || !s)
+		return FALSE;
+	rdp_update_lock(context->update);
+	const BOOL rc = update_recv_fastpath_pointer(context->update, updateCode, s);
+	rdp_update_unlock(context->update);
+	return rc;
+}
+
 BOOL update_recv_pointer(rdpUpdate* update, wStream* s)
 {
 	BOOL rc = FALSE;

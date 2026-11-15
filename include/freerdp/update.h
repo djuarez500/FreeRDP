@@ -243,6 +243,24 @@ extern "C"
 	FREERDP_API void rdp_update_lock(rdpUpdate* update);
 	FREERDP_API void rdp_update_unlock(rdpUpdate* update);
 
+	/** @brief Parse and dispatch one pointer update received outside the fast-path stream
+	 *
+	 *  The body is the structure that follows a fast-path pointer update header
+	 *  (MS-RDPBCGR 2.2.9.1.2.1): \b updateCode is that update's code (0x5 hidden, 0x6 default,
+	 *  0x8 position, 0x9 color, 0xA cached, 0xB new, 0xC large). The update is validated and
+	 *  dispatched to the rdpPointerUpdate callbacks under the update lock, exactly as a
+	 *  fast-path pointer update.
+	 *
+	 *  @param context The connection context
+	 *  @param updateCode The fast-path pointer update code
+	 *  @param s A stream positioned at the update body
+	 *
+	 *  @return \b TRUE for success, \b FALSE otherwise
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_API BOOL freerdp_update_recv_fastpath_pointer(rdpContext* context, BYTE updateCode,
+	                                                      wStream* s);
+
 	/** @brief Get the number of RDP codec stats indices in use.
 	 *
 	 *  @return The number of RDP codec stats indices that will return a value

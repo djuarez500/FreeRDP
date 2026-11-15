@@ -232,6 +232,8 @@ FREERDP_LOCAL BOOL update_recv_play_sound(rdpUpdate* update, wStream* s);
 
 WINPR_ATTR_NODISCARD
 FREERDP_LOCAL BOOL update_recv_pointer(rdpUpdate* update, wStream* s);
+WINPR_ATTR_NODISCARD
+FREERDP_LOCAL BOOL update_recv_fastpath_pointer(rdpUpdate* update, BYTE updateCode, wStream* s);
 
 WINPR_ATTR_NODISCARD
 FREERDP_LOCAL BOOL update_recv(rdpUpdate* update, wStream* s);
