@@ -1,0 +1,25 @@
+set(OPTION_DEFAULT OFF)
+set(OPTION_CLIENT_DEFAULT OFF)
+set(OPTION_SERVER_DEFAULT OFF)
+
+if(WITH_GFX_AZURE)
+  set(OPTION_DEFAULT ON)
+  set(OPTION_CLIENT_DEFAULT ON)
+endif()
+
+define_channel_options(
+  NAME
+  "mousecursor"
+  TYPE
+  "dynamic"
+  DESCRIPTION
+  "Mouse cursor shapes over a dynamic channel"
+  SPECIFICATIONS
+  ""
+  DEFAULT
+  ${OPTION_DEFAULT}
+  CLIENT_DEFAULT
+  ${OPTION_CLIENT_DEFAULT}
+  SERVER_DEFAULT
+  ${OPTION_SERVER_DEFAULT}
+)
