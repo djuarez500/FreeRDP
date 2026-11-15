@@ -276,8 +276,14 @@ bool sdlDispContext::sendLayout(const rdpMonitor* monitors, size_t nmonitors)
 	WINPR_ASSERT(_disp);
 	const size_t len = layouts.size();
 	WINPR_ASSERT(len <= UINT32_MAX);
-	const auto ret = IFCALLRESULT(CHANNEL_RC_OK, _disp->SendMonitorLayout, _disp,
-	                              static_cast<UINT32>(len), layouts.data());
+	/* A server that lays out the desktop from the monitor configuration channel gets the layout
+	 * there; Display Control otherwise. */
+	auto ret =
+	    freerdp_client_send_monitor_layout(reinterpret_cast<rdpClientContext*>(_sdl->context()),
+	                                       static_cast<UINT32>(len), layouts.data());
+	if (ret == CHANNEL_RC_NOT_OPEN)
+		ret = IFCALLRESULT(CHANNEL_RC_OK, _disp->SendMonitorLayout, _disp, static_cast<UINT32>(len),
+		                   layouts.data());
 	if (ret != CHANNEL_RC_OK)
 		return false;
 	_last_sent_layout = std::move(layouts);
