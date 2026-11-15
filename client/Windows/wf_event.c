@@ -387,8 +387,13 @@ static void wf_send_resize(wfContext* wfc)
 				layout.PhysicalWidth = targetWidth;
 				layout.PhysicalHeight = targetHeight;
 
-				if (IFCALLRESULT(CHANNEL_RC_OK, wfc->disp->SendMonitorLayout, wfc->disp, 1,
-				                 &layout) != CHANNEL_RC_OK)
+				/* A server that lays out the desktop from the monitor configuration channel gets
+				 * the layout there; Display Control otherwise. */
+				UINT rc = freerdp_client_send_monitor_layout(&wfc->common, 1, &layout);
+				if (rc == CHANNEL_RC_NOT_OPEN)
+					rc = IFCALLRESULT(CHANNEL_RC_OK, wfc->disp->SendMonitorLayout, wfc->disp, 1,
+					                  &layout);
+				if (rc != CHANNEL_RC_OK)
 				{
 					WLog_ERR("", "SendMonitorLayout failed.");
 				}
