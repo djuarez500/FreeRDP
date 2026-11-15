@@ -471,6 +471,18 @@ BOOL rdp_client_connect(rdpRdp* rdp)
 
 		SelectedProtocol = nego_get_selected_protocol(rdp->nego);
 
+		/* After NLA the server already has the credentials, but it still looks at
+		 * INFO_AUTOLOGON: without it the session is treated as "always prompt for
+		 * password", which makes the server create a new session and move the
+		 * connection into the user's disconnected one later instead of reconnecting
+		 * to it directly. */
+		if ((SelectedProtocol & (PROTOCOL_HYBRID | PROTOCOL_HYBRID_EX)) &&
+		    (settings->Username != nullptr) &&
+		    (freerdp_settings_get_string(settings, FreeRDP_Password) != nullptr) &&
+		    !freerdp_settings_get_bool(settings, FreeRDP_RemoteCredentialGuard) &&
+		    !freerdp_settings_get_bool(settings, FreeRDP_RestrictedAdminModeRequired))
+			settings->AutoLogonEnabled = TRUE;
+
 		if ((SelectedProtocol & PROTOCOL_SSL) || (SelectedProtocol == PROTOCOL_RDP) ||
 		    (SelectedProtocol == PROTOCOL_RDSTLS))
 		{
